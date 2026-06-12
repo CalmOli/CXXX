@@ -1,6 +1,7 @@
 package com.Xxxtube
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 
@@ -11,14 +12,18 @@ class Xxxtube : MainAPI() {
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
     override val vpnStatus = VPNStatus.MightBeNeeded
+    private val cfInterceptor = CloudflareKiller()
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/videos/?by=rating" to "Top Videos",
+        "$mainUrl/categories/" to "Categories",
+        "$mainUrl/models/" to "Models",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/videos_1/$page/"
-        val document = app.get(url).document
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
+        val document = app.get(url, interceptor = cfInterceptor).document
         val home = document.select("div.catalog_item").mapNotNull {
             it.toSearchResult()
         }
@@ -47,7 +52,7 @@ class Xxxtube : MainAPI() {
         val searchResponse = mutableListOf<SearchResponse>()
         for (i in 1..5) {
             val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$i/"
-            val document = app.get(url).document
+            val document = app.get(url, interceptor = cfInterceptor).document
             val results = document.select("div.catalog_item").mapNotNull {
                 it.toSearchResult()
             }
@@ -62,7 +67,7 @@ class Xxxtube : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
+        val document = app.get(url, interceptor = cfInterceptor).document
         val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")
             ?: "No Title"
@@ -73,7 +78,7 @@ class Xxxtube : MainAPI() {
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val document = app.get(data).document
+        val document = app.get(data, interceptor = cfInterceptor).document
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
@@ -120,7 +125,7 @@ class Xxxtube : MainAPI() {
                     name = this.name,
                     url = url,
                 ) {
-                    this.referer = mainUrl
+                    this.referer = data
                     this.quality = quality
                 }
             )

@@ -105,7 +105,7 @@ class Fullvideos : MainAPI() {
                         name = name,
                         url = src
                     ) {
-                        this.referer = mainUrl
+                        this.referer = data
                         this.quality = quality
                     }
                 )

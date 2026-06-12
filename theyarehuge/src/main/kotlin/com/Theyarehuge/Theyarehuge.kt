@@ -13,11 +13,14 @@ class Theyarehuge : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/recent/" to "Recent",
+        "$mainUrl/popular.porn-video/" to "Trending",
+        "$mainUrl/top-rated-videos/" to "Top Rated",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/popular.porn-video/$page/"
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
         val document = app.get(url).document
         val home = document.select("a.item.drclass").mapNotNull {
             it.toSearchResult()
@@ -119,7 +122,7 @@ class Theyarehuge : MainAPI() {
                     name = this.name,
                     url = url,
                 ) {
-                    this.referer = mainUrl
+                    this.referer = data
                     this.quality = quality
                 }
             )

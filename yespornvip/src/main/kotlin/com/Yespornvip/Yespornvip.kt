@@ -1,6 +1,7 @@
 package com.Yespornvip
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 
@@ -10,14 +11,18 @@ class Yespornvip : MainAPI() {
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
+    private val cfInterceptor = CloudflareKiller()
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos",
+        "$mainUrl/top-rated/" to "Top Rated",
+        "$mainUrl/most-popular/" to "Most Viewed",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$request.data/page/$page/"
-        val document = app.get(url).document
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
+        val document = app.get(url, interceptor = cfInterceptor).document
         val home = document.select("article.loop-video.thumb-block").mapNotNull {
             it.toSearchResult()
         }
@@ -46,14 +51,14 @@ class Yespornvip : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query/").document
+        val document = app.get("$mainUrl/search/$query/", interceptor = cfInterceptor).document
         return document.select("article.loop-video.thumb-block").mapNotNull {
             it.toSearchResult()
         }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
+        val document = app.get(url, interceptor = cfInterceptor).document
         val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")
             ?: "No Title"
@@ -64,7 +69,7 @@ class Yespornvip : MainAPI() {
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val document = app.get(data).document
+        val document = app.get(data, interceptor = cfInterceptor).document
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
@@ -111,7 +116,7 @@ class Yespornvip : MainAPI() {
                     name = this.name,
                     url = url,
                 ) {
-                    this.referer = mainUrl
+                    this.referer = data
                     this.quality = quality
                 }
             )

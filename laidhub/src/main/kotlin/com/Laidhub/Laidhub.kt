@@ -131,7 +131,7 @@ class Laidhub : MainAPI() {
                     name = this.name,
                     url = url,
                 ) {
-                    this.referer = mainUrl
+                    this.referer = data
                     this.quality = quality
                 }
             )

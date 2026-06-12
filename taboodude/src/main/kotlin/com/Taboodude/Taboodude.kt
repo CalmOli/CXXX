@@ -13,11 +13,14 @@ class Taboodude : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos",
+        "$mainUrl/top-rated/" to "Top Rated",
+        "$mainUrl/most-popular/" to "Most Viewed",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "${mainUrl}/?page=$page"
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
         val document = app.get(url).document
         val home = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
             it.toSearchResult()
@@ -124,7 +127,7 @@ class Taboodude : MainAPI() {
                     name = this.name,
                     url = url,
                 ) {
-                    this.referer = mainUrl
+                    this.referer = data
                     this.quality = quality
                 }
             )
