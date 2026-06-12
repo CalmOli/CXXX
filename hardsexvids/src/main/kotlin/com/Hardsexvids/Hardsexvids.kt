@@ -12,13 +12,13 @@ class Hardsexvids : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
+        val url = if (page <= 1) request.data else "${request.data.removeSuffix("/")}/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.margin-fix > div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,11 +32,12 @@ class Hardsexvids : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a[href*=\"/videos/\"]") ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        val title = this.selectFirst("strong.title")?.text()?.trim()
+            ?: link.attr("title").ifEmpty { return null }
+        val img = this.selectFirst("img.thumb.lazy-load")
+        val posterUrl = fixUrlNull(img?.attr("data-original") ?: img?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -45,7 +46,7 @@ class Hardsexvids : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
         val document = app.get("$mainUrl/search/$query/").document
-        val results = document.select("div.video-item").mapNotNull {
+        val results = document.select("div.margin-fix > div.item").mapNotNull {
             it.toSearchResult()
         }
         searchResponse.addAll(results)
@@ -86,6 +87,19 @@ class Hardsexvids : MainAPI() {
                     }
                 )
             }
+        }
+        document.select("video source").mapNotNull { source ->
+            val src = source.attr("src").ifEmpty { return@mapNotNull null }
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = fixUrl(src)
+                ) {
+                    this.referer = mainUrl
+                    this.quality = Qualities.Unknown.value
+                }
+            )
         }
         return true
     }

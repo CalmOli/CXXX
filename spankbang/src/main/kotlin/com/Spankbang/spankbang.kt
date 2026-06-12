@@ -1,6 +1,5 @@
 package com.coxju
 
-import android.util.Log
 import org.jsoup.nodes.Element
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
@@ -43,12 +42,10 @@ class Spankbang : MainAPI() {
         )
     }
 
-    private fun Element.toSearchResult(): SearchResponse {
-        val title     = fixTitle(this.select("img").attr("alt")).trim()
-        val href      = fixUrl(this.select("a[href*='/video/']").attr("href"))
+    private fun Element.toSearchResult(): SearchResponse? {
+        val title     = this.select("img").attr("alt").trim().ifEmpty { return null }
+        val href      = fixUrl(this.select("a[href*='/video/']").attr("href")).ifEmpty { return null }
         val posterUrl = fixUrlNull(this.select("img").attr("src"))
-        Log.d("title","Title check")
-
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -77,10 +74,11 @@ class Spankbang : MainAPI() {
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
 
-        val title       = document.selectFirst("meta[property=og:title]")?.attr("content")?.trim().toString()
+        val title       = document.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
+            ?: document.selectFirst("title")?.text()?.trim()
+            ?: "No Title"
         val poster      = fixUrlNull(document.selectFirst("meta[property='og:image']")?.attr("content"))
         val description = document.selectFirst("meta[property=og:description]")?.attr("content")?.trim()
-    
 
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster

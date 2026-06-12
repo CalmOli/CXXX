@@ -16,9 +16,9 @@ class Blowjobs : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,24 +32,37 @@ class Blowjobs : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a[href*=\"/videos/\"]") ?: this.selectFirst("a.popup-video-link") ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        if (href.isNullOrEmpty()) return null
+
+        val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: return null
+
+        val img = this.selectFirst("img.thumb.lazy-load")
+            ?: this.selectFirst("img")
+        val posterUrl = fixUrlNull(img?.attr("data-original") ?: img?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val searchResponse = mutableListOf<SearchResponse>()
-        val document = app.get("$mainUrl/search/$query/").document
-        val results = document.select("div.video-item").mapNotNull {
-            it.toSearchResult()
+        val results = mutableListOf<SearchResponse>()
+        var page = 1
+        while (true) {
+            val url = if (page == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$page/"
+            val document = app.get(url).document
+            val items = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
+                it.toSearchResult()
+            }
+            if (items.isEmpty()) break
+            results.addAll(items)
+            page++
         }
-        searchResponse.addAll(results)
-        return searchResponse
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -71,10 +84,11 @@ class Blowjobs : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"']+get_file[^"']+""")
-        val links = regex.findAll(docText).map { it.value }.toList()
-        for (link in links) {
-            if (link.isNotEmpty()) {
+        val regex = Regex("""https?://[^"']+get_file[^"']+\.mp4""")
+        val links = regex.findAll(docText).map { it.value }.toSet()
+
+        if (links.isNotEmpty()) {
+            for (link in links) {
                 callback.invoke(
                     newExtractorLink(
                         source = this.name,
@@ -86,6 +100,41 @@ class Blowjobs : MainAPI() {
                     }
                 )
             }
+            return true
+        }
+
+        val videoSources = document.select("video source[src]")
+        for (source in videoSources) {
+            val src = source.attr("src")
+            if (src.isNotEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = this.name,
+                        name = this.name,
+                        url = src
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        }
+
+        if (videoSources.isNotEmpty()) return true
+
+        val fallbackRegex = Regex("""https?://[^"']+get_file[^"']+""")
+        val fallbackLinks = fallbackRegex.findAll(docText).map { it.value }.toSet()
+        for (link in fallbackLinks) {
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = link
+                ) {
+                    this.referer = mainUrl
+                    this.quality = Qualities.Unknown.value
+                }
+            )
         }
         return true
     }

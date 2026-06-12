@@ -16,9 +16,9 @@ class Neporn : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,11 +32,13 @@ class Neporn : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
-        val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        val title = selectFirst("strong.title")?.text()
+            ?: selectFirst("a[title]")?.attr("title")
+            ?: selectFirst("img[alt]")?.attr("alt")
+            ?: return null
+        val href = selectFirst("a[href*=\"/video/\"]")?.attr("href")?.let { fixUrl(it) } ?: return null
+        val img = selectFirst("img.thumb")
+        val posterUrl = fixUrlNull(img?.attr("src") ?: img?.attr("data-original"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -45,7 +47,7 @@ class Neporn : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
         val document = app.get("$mainUrl/search/$query/").document
-        val results = document.select("div.video-item").mapNotNull {
+        val results = document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
         searchResponse.addAll(results)
@@ -71,15 +73,28 @@ class Neporn : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"']+bxcdn\.net[^"']+\.mp4""")
-        val links = regex.findAll(docText).map { it.value }.toList()
+        val regex = Regex("""https?://[^"'\s<>]+neporn\.com/get_file/[^"'\s<>]+\.mp4[^"'\s<>]*""")
+        val links = regex.findAll(docText).map { it.value }.filter { !it.contains("_preview") }.distinct().toList()
         for (link in links) {
-            if (link.isNotEmpty()) {
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = link
+                ) {
+                    this.referer = mainUrl
+                    this.quality = Qualities.Unknown.value
+                }
+            )
+        }
+        document.select("video source").forEach { source ->
+            val src = source.attr("src")
+            if (src.isNotEmpty()) {
                 callback.invoke(
                     newExtractorLink(
                         source = this.name,
                         name = this.name,
-                        url = link
+                        url = fixUrl(src)
                     ) {
                         this.referer = mainUrl
                         this.quality = Qualities.Unknown.value

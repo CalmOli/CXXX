@@ -17,51 +17,50 @@ class Sexu : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/$page/"
-        val document = app.get(url).document
-        val home = document.select("a[href]").filter {
-            it.attr("href").matches(Regex("/\\d+/"))
-        }.mapNotNull {
-            it.toSearchResult()
+        val document = app.get(request.data).document
+        val items = document.select("li.grid__item").mapNotNull { item ->
+            val titleEl = item.selectFirst("a.item__title") ?: return@mapNotNull null
+            val linkEl = item.selectFirst("a.item__main[href]") ?: return@mapNotNull null
+            val imgEl = item.selectFirst("img.item__inner[src]") ?: return@mapNotNull null
+
+            val title = titleEl.text().trim()
+            val href = fixUrl(linkEl.attr("href"))
+            val poster = fixUrlNull(imgEl.attr("src"))
+
+            newMovieSearchResponse(title, href, TvType.NSFW) {
+                this.posterUrl = poster
+            }
         }
         return newHomePageResponse(
             list = HomePageList(
                 name = request.name,
-                list = home,
+                list = items,
                 isHorizontalImages = true
             ),
-            hasNext = true
+            hasNext = page < 5
         )
-    }
-
-    private fun Element.toSearchResult(): SearchResponse? {
-        val href = fixUrl(this.attr("href"))
-        val title = this.attr("title").ifEmpty {
-            this.text().ifEmpty { return null }
-        }
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
-        return newMovieSearchResponse(title, href, TvType.NSFW) {
-            this.posterUrl = posterUrl
-        }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
         for (i in 1..5) {
-            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$i/"
-            val document = app.get(url).document
-            val results = document.select("a[href]").filter {
-                it.attr("href").matches(Regex("/\\d+/"))
-            }.mapNotNull {
-                it.toSearchResult()
-            }
-            if (!searchResponse.containsAll(results)) {
-                searchResponse.addAll(results)
-            } else {
-                break
+            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/page/$i/"
+            val document = try { app.get(url).document } catch (e: Exception) { break }
+            val results = document.select("li.grid__item").mapNotNull { item ->
+                val titleEl = item.selectFirst("a.item__title") ?: return@mapNotNull null
+                val linkEl = item.selectFirst("a.item__main[href]") ?: return@mapNotNull null
+                val imgEl = item.selectFirst("img.item__inner[src]")
+
+                val title = titleEl.text().trim()
+                val href = fixUrl(linkEl.attr("href"))
+                val poster = imgEl?.attr("src")?.let { fixUrlNull(it) }
+
+                newMovieSearchResponse(title, href, TvType.NSFW) {
+                    this.posterUrl = poster
+                }
             }
             if (results.isEmpty()) break
+            searchResponse.addAll(results)
         }
         return searchResponse
     }
@@ -84,10 +83,13 @@ class Sexu : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
-        document.select("video source").forEach { source ->
+        document.select("source").forEach { source ->
             val src = source.attr("src")
             if (src.isNotEmpty()) {
-                val label = source.attr("label")
+                val url = if (src.startsWith("//")) "https:$src" else src
+                val label = source.attr("label").ifEmpty {
+                    source.attr("title").ifEmpty { "" }
+                }
                 val quality = when {
                     "1080" in label -> Qualities.P1080.value
                     "720" in label -> Qualities.P720.value
@@ -98,11 +100,27 @@ class Sexu : MainAPI() {
                 callback.invoke(
                     newExtractorLink(
                         source = name,
-                        name = name,
-                        url = src
+                        name = "$name - $label".trimEnd('-', ' ').ifBlank { name },
+                        url = url
                     ) {
                         this.referer = mainUrl
                         this.quality = quality
+                    }
+                )
+            }
+        }
+        document.select("video[src]").forEach { video ->
+            val src = video.attr("src")
+            if (src.isNotEmpty()) {
+                val url = if (src.startsWith("//")) "https:$src" else src
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = url
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
                     }
                 )
             }

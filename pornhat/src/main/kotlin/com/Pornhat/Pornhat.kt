@@ -79,36 +79,55 @@ class Pornhat : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
+        val docText = document.toString()
+
+        val videoSources = mutableListOf<Pair<String, Int>>()
+
         document.select("video source").forEach { source ->
             val src = source.attr("src")
             if (src.isNotEmpty()) {
                 val label = source.attr("label")
                 val quality = when {
+                    "2160" in label -> Qualities.P2160.value
                     "1080" in label -> Qualities.P1080.value
                     "720" in label -> Qualities.P720.value
                     "480" in label -> Qualities.P480.value
                     "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
-                val videoUrl = try {
-                    val resp = app.get(src, referer = data)
-                    resp.text // redirected HLS URL
-                } catch (e: Exception) {
-                    src // fallback to original URL
-                }
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name ${source.attr("title")}",
-                        url = videoUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = data
-                        this.quality = quality
-                    }
-                )
+                videoSources.add(Pair(fixUrl(src), quality))
             }
         }
+
+        if (videoSources.isEmpty()) {
+            val regex = Regex("""https?://[^"']+get_file[^"']+""")
+            val videoLinks = regex.findAll(docText).map { it.value }.toList().distinct()
+            for (link in videoLinks) {
+                val quality = when {
+                    link.contains("2160", ignoreCase = true) -> Qualities.P2160.value
+                    link.contains("1080", ignoreCase = true) -> Qualities.P1080.value
+                    link.contains("720", ignoreCase = true) -> Qualities.P720.value
+                    link.contains("480", ignoreCase = true) -> Qualities.P480.value
+                    link.contains("360", ignoreCase = true) -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                videoSources.add(Pair(link, quality))
+            }
+        }
+
+        for ((videoUrl, quality) in videoSources) {
+            callback.invoke(
+                newExtractorLink(
+                    source = name,
+                    name = "$name ${quality}p",
+                    url = videoUrl,
+                ) {
+                    this.referer = mainUrl
+                    this.quality = quality
+                }
+            )
+        }
+
         return true
     }
 }

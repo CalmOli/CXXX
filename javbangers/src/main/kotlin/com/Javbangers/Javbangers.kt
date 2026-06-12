@@ -12,13 +12,13 @@ class Javbangers : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/?page=" to "Latest Videos"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$request.data/page/$page/"
+        val url = if (page <= 1) mainUrl else "${request.data}$page"
         val document = app.get(url).document
-        val home = document.select("a[href*=\"/video/\"]").mapNotNull {
+        val home = document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,15 +32,16 @@ class Javbangers : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.attr("title").ifEmpty {
-            this.text().ifEmpty { return null }
-        }
-        val href = fixUrl(this.attr("href"))
-        val img = this.selectFirst("img")
+        val linkEl = selectFirst("a[href*=\"/video/\"]") ?: return null
+        val href = fixUrl(linkEl.attr("href"))
+        val title = selectFirst("strong.title")?.text()?.ifEmpty { null }
+            ?: linkEl.attr("title").ifEmpty { null }
+            ?: selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: return null
+        val img = selectFirst("img.thumb.lazy-load")
         val posterUrl = fixUrlNull(
-            img?.attr("data-src")
+            img?.attr("data-original")
                 ?: img?.attr("src")
-                ?: img?.attr("data-original")
         )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
@@ -48,8 +49,8 @@ class Javbangers : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query/").document
-        return document.select("a[href*=\"/video/\"]").mapNotNull {
+        val document = app.get("$mainUrl/search/?q=$query").document
+        return document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -92,6 +93,21 @@ class Javbangers : MainAPI() {
                     this.referer = mainUrl
                 }
             )
+        }
+
+        document.select("video source[src]").forEach { source ->
+            val src = source.attr("src")
+            if (src.isNotBlank()) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = fixUrl(src),
+                    ) {
+                        this.referer = mainUrl
+                    }
+                )
+            }
         }
 
         return true

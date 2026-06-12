@@ -17,9 +17,9 @@ class Bingato : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/?page=$page"
         val document = app.get(url).document
-        val home = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+        val home = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -33,11 +33,15 @@ class Bingato : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a[href*=\"/item/\"]") ?: return null
+        val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img[alt]")?.attr("alt")?.ifEmpty { null }
+            ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
+        val img = this.selectFirst("img.thumb.lazy-load")
         val posterUrl = fixUrlNull(img?.attr("data-original"))
+            ?: fixUrlNull(img?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -46,9 +50,9 @@ class Bingato : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
         for (i in 1..5) {
-            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$i/"
+            val url = if (i == 1) "$mainUrl/s?q=$query" else "$mainUrl/s?q=$query&page=$i"
             val document = app.get(url).document
-            val results = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+            val results = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {
@@ -98,6 +102,21 @@ class Bingato : MainAPI() {
                     ) {
                         this.referer = mainUrl
                         this.quality = quality
+                    }
+                )
+            }
+        }
+        val regex = Regex("""(https?://[^"']*/get_file/[^"']+)""")
+        document.select("script").forEach { script ->
+            regex.findAll(script.html()).forEach { match ->
+                val url = match.value
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = url,
+                    ) {
+                        this.referer = mainUrl
                     }
                 )
             }

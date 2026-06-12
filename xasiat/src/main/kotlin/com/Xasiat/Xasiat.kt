@@ -16,9 +16,9 @@ class Xasiat : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,24 +32,24 @@ class Xasiat : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a[href*=\"/videos/\"]") ?: return null
+        val title = this.selectFirst("strong.title")?.text()
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img[alt]")?.attr("alt")?.ifEmpty { null }
+            ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        val img = this.selectFirst("img.thumb.lazy-load[data-original]")
+        val posterUrl = fixUrlNull(img?.attr("data-original") ?: this.selectFirst("img")?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val searchResponse = mutableListOf<SearchResponse>()
         val document = app.get("$mainUrl/search/$query/").document
-        val results = document.select("div.video-item").mapNotNull {
+        return document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
-        searchResponse.addAll(results)
-        return searchResponse
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -71,15 +71,32 @@ class Xasiat : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"']+bkcdn\.net[^"']+\.mp4""")
-        val links = regex.findAll(docText).map { it.value }.toList()
-        for (link in links) {
-            if (link.isNotEmpty()) {
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]+""")
+        val matches = getFileRegex.findAll(docText).map { it.value }.toList()
+        if (matches.isNotEmpty()) {
+            for (link in matches) {
                 callback.invoke(
                     newExtractorLink(
                         source = this.name,
                         name = this.name,
                         url = link
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+            return true
+        }
+        val sources = document.select("video source[src]")
+        for (source in sources) {
+            val src = source.attr("src")
+            if (src.isNotEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = this.name,
+                        name = this.name,
+                        url = src
                     ) {
                         this.referer = mainUrl
                         this.quality = Qualities.Unknown.value

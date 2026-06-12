@@ -18,7 +18,7 @@ class Fullvideos : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -33,10 +33,14 @@ class Fullvideos : MainAPI() {
 
     private fun Element.toSearchResult(): SearchResponse? {
         val link = this.selectFirst("a[href*=\"/videos/\"]") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val title = link.attr("title").ifEmpty {
+            this.selectFirst("strong.title")?.text()?.ifEmpty { return null } ?: return null
+        }
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src"))
+        val img = this.selectFirst("img.thumb.lazyload")
+        val posterUrl = fixUrlNull(
+            img?.attr("data-src")?.ifEmpty { img?.attr("src") }
+        )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -47,7 +51,7 @@ class Fullvideos : MainAPI() {
         for (i in 1..5) {
             val url = if (i == 1) "$mainUrl/search/?q=$query" else "$mainUrl/search/page/$i/?q=$query"
             val document = app.get(url).document
-            val results = document.select("div.video-item").mapNotNull {
+            val results = document.select("div.item").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {

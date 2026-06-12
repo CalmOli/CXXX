@@ -16,9 +16,9 @@ class Analdin : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$request.data/page/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
         val document = app.get(url).document
-        val home = document.select("a[href*=\"/videos/\"]").mapNotNull {
+        val home = document.select("div.list-videos > div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,15 +32,17 @@ class Analdin : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.attr("title").ifEmpty {
-            this.text().ifEmpty { return null }
-        }
-        val href = fixUrl(this.attr("href"))
-        val img = this.selectFirst("img")
+        val link = this.selectFirst("a.popup-video-link, a[href*=\"/videos/\"]") ?: return null
+        val href = fixUrl(link.attr("href"))
+        val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: return null
+        val img = this.selectFirst("img.thumb.lazy-load")
         val posterUrl = fixUrlNull(
-            img?.attr("data-src")
+            img?.attr("data-original")
+                ?: link.attr("thumb")
                 ?: img?.attr("src")
-                ?: img?.attr("data-original")
         )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
@@ -49,7 +51,7 @@ class Analdin : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/search/$query/").document
-        return document.select("a[href*=\"/videos/\"]").mapNotNull {
+        return document.select("div.item").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -83,6 +85,11 @@ class Analdin : MainAPI() {
         }
 
         for (link in links) {
+            val quality = when {
+                link.contains("hd.mp4", ignoreCase = true) -> Qualities.P1080.value
+                link.contains(".mp4") -> Qualities.P720.value
+                else -> Qualities.Unknown.value
+            }
             callback.invoke(
                 newExtractorLink(
                     source = name,
@@ -90,6 +97,7 @@ class Analdin : MainAPI() {
                     url = link,
                 ) {
                     this.referer = mainUrl
+                    this.quality = quality
                 }
             )
         }
@@ -97,6 +105,15 @@ class Analdin : MainAPI() {
         document.select("video source").forEach { source ->
             val src = source.attr("src")
             if (src.isNotEmpty()) {
+                val label = source.attr("label")
+                val quality = when {
+                    "2160" in label -> Qualities.P2160.value
+                    "1080" in label -> Qualities.P1080.value
+                    "720" in label -> Qualities.P720.value
+                    "480" in label -> Qualities.P480.value
+                    "360" in label -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
                 callback.invoke(
                     newExtractorLink(
                         source = name,
@@ -104,6 +121,7 @@ class Analdin : MainAPI() {
                         url = src,
                     ) {
                         this.referer = mainUrl
+                        this.quality = quality
                     }
                 )
             }

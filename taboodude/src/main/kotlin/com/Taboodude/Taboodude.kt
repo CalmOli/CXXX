@@ -17,9 +17,9 @@ class Taboodude : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/$page/"
+        val url = if (page <= 1) request.data else "${mainUrl}/?page=$page"
         val document = app.get(url).document
-        val home = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+        val home = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -33,22 +33,26 @@ class Taboodude : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a[href*=\"/video/\"]") ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-original"))
+        val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: return null
+        val poster = this.selectFirst("img[data-original]")?.attr("data-original")?.ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("src")?.ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("data-src")?.ifEmpty { null }
         return newMovieSearchResponse(title, href, TvType.NSFW) {
-            this.posterUrl = posterUrl
+            this.posterUrl = fixUrlNull(poster)
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResponse = mutableListOf<SearchResponse>()
         for (i in 1..5) {
-            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$i/"
+            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/?page=$i"
             val document = app.get(url).document
-            val results = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+            val results = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {
@@ -79,7 +83,9 @@ class Taboodude : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
-        document.select("video source").forEach { source ->
+        var found = false
+
+        document.select("video source, source[type*=video]").forEach { source ->
             val src = source.attr("src")
             if (src.isNotEmpty()) {
                 val label = source.attr("label")
@@ -100,8 +106,63 @@ class Taboodude : MainAPI() {
                         this.quality = quality
                     }
                 )
+                found = true
             }
         }
-        return true
+
+        document.select("video[src]").forEach { video ->
+            val src = video.attr("src")
+            if (src.isNotEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = src
+                    ) {
+                        this.referer = mainUrl
+                    }
+                )
+                found = true
+            }
+        }
+
+        document.select("script").forEach { script ->
+            val html = script.html()
+            Regex("""(?:file|src|url)\s*[:=]\s*["']([^"']*\.(?:mp4|m3u8))["']""")
+                .findAll(html)
+                .forEach { match ->
+                    val src = match.groupValues[1]
+                    if (src.isNotEmpty()) {
+                        callback.invoke(
+                            newExtractorLink(
+                                source = name,
+                                name = name,
+                                url = src
+                            ) {
+                                this.referer = mainUrl
+                            }
+                        )
+                        found = true
+                    }
+                }
+        }
+
+        document.select("iframe[src]").forEach { iframe ->
+            val src = iframe.attr("src")
+            if (src.isNotEmpty() && !src.contains("google") && !src.contains("facebook")) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = "$name (iframe)",
+                        url = src
+                    ) {
+                        this.referer = mainUrl
+                    }
+                )
+                found = true
+            }
+        }
+
+        return found
     }
 }

@@ -18,7 +18,7 @@ class Yespornvip : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) request.data else "$request.data/page/$page/"
         val document = app.get(url).document
-        val home = document.select("a[href*=\"/video/\"]").mapNotNull {
+        val home = document.select("article.loop-video.thumb-block").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,15 +32,13 @@ class Yespornvip : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val title = this.attr("title").ifEmpty {
-            this.text().ifEmpty { return null }
-        }
-        val href = fixUrl(this.attr("href"))
-        val img = this.selectFirst("img")
+        val link = selectFirst("a[href]") ?: return null
+        val href = fixUrl(link.attr("href"))
+        val title = selectFirst("header.entry-header span")?.text()?.trim()
+            ?: return null
+        val img = selectFirst("img[data-src]") ?: selectFirst("img")
         val posterUrl = fixUrlNull(
-            img?.attr("data-src")
-                ?: img?.attr("src")
-                ?: img?.attr("data-original")
+            img?.attr("data-src") ?: img?.attr("src")
         )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
@@ -49,7 +47,7 @@ class Yespornvip : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/search/$query/").document
-        return document.select("a[href*=\"/video/\"]").mapNotNull {
+        return document.select("article.loop-video.thumb-block").mapNotNull {
             it.toSearchResult()
         }
     }
@@ -73,14 +71,13 @@ class Yespornvip : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"']+get_file[^"']+\.mp4""")
-        val videoId = data.substringAfterLast("/").substringBefore("?")
 
-        val links = regex.findAll(docText).map { it.value }.filter {
-            it.contains(videoId)
-        }.toList().ifEmpty {
-            regex.findAll(docText).map { it.value }.toList()
-        }
+        val sourceLinks = document.select("video source[src]").map { it.attr("src") }
+
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*(?:\.mp4)?[^"'\s]*""")
+        val regexLinks = getFileRegex.findAll(docText).map { it.value }.toList()
+
+        val links = (sourceLinks + regexLinks).distinct()
 
         for (link in links) {
             callback.invoke(

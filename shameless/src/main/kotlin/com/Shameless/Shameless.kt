@@ -12,13 +12,13 @@ class Shameless : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.cards.five-columns div.item.card").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -32,11 +32,16 @@ class Shameless : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = this.selectFirst("a.card-body[href*=\"/videos/\"]") ?: return null
+        val title = this.selectFirst("a.card-info__text")?.text()?.trim()
+            ?: link.attr("title").ifEmpty { return null }
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        val img = this.selectFirst("img.thumb.lazy-load")
+        val posterUrl = fixUrlNull(
+            img?.attr("data-src")
+                ?: img?.attr("data-original")
+                ?: this.selectFirst("img")?.attr("src")
+        )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -47,7 +52,7 @@ class Shameless : MainAPI() {
         for (i in 1..5) {
             val url = if (i == 1) "$mainUrl/search/$query" else "$mainUrl/search/$query/page/$i/"
             val document = app.get(url).document
-            val results = document.select("div.video-item").mapNotNull {
+            val results = document.select("div.cards.five-columns div.item.card").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {
@@ -79,9 +84,11 @@ class Shameless : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""video_url\s*:\s*'(https?://[^']+)'""")
-        val links = regex.findAll(docText).map { it.groupValues[1] }.toList()
-        for (link in links) {
+        val regex = Regex("""https?://[^"'\s]+get_file[^"'\s]*""")
+        val links = regex.findAll(docText).map { it.value }.toList()
+        val sourceLinks = document.select("video source[src]").map { it.attr("src") }
+        val allLinks = (links + sourceLinks).distinct()
+        for (link in allLinks) {
             if (link.isNotEmpty()) {
                 callback.invoke(
                     newExtractorLink(

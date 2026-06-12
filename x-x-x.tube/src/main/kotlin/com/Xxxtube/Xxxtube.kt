@@ -17,9 +17,9 @@ class Xxxtube : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/$page/"
+        val url = if (page <= 1) request.data else "$mainUrl/videos_1/$page/"
         val document = app.get(url).document
-        val home = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+        val home = document.select("div.catalog_item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -33,11 +33,11 @@ class Xxxtube : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
+        val link = selectFirst("a.media-card[href*=\"/video/\"]") ?: return null
+        val title = selectFirst("div.media-card_title")?.text()?.trim()?.ifEmpty { return null } ?: return null
         val href = fixUrl(link.attr("href"))
-        val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-original"))
+        val posterPath = selectFirst("div.media-card_preview")?.attr("data-preview") ?: return null
+        val posterUrl = if (posterPath.startsWith("http")) posterPath else "${mainUrl}${posterPath}"
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -48,7 +48,7 @@ class Xxxtube : MainAPI() {
         for (i in 1..5) {
             val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/$i/"
             val document = app.get(url).document
-            val results = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
+            val results = document.select("div.catalog_item").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {
@@ -79,6 +79,21 @@ class Xxxtube : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val document = app.get(data).document
+        val videoSources = document.select("video source")
+        for (source in videoSources) {
+            val src = source.attr("src")
+            if (src.isNotEmpty()) {
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = src
+                    ) {
+                        this.referer = mainUrl
+                    }
+                )
+            }
+        }
         val docText = document.toString()
         val regex = Regex("""https?://[^"']+get_file[^"']+""")
         val links = regex.findAll(docText).map { it.value }.toList()
