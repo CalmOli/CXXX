@@ -13,11 +13,13 @@ class Pornhat : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/" to "Fresh Videos",
+        "$mainUrl/popular/" to "Popular",
+        "$mainUrl/trending/" to "Trending",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/$page/"
+        val url = if (page <= 1) request.data else request.data.trimEnd('/') + "/$page/"
         val document = app.get(url).document
         val home = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
             it.toSearchResult()
@@ -28,7 +30,7 @@ class Pornhat : MainAPI() {
                 list = home,
                 isHorizontalImages = true
             ),
-            hasNext = true
+            hasNext = home.isNotEmpty()
         )
     }
 
@@ -51,20 +53,18 @@ class Pornhat : MainAPI() {
             val results = document.select("div.item.thumb-bl.thumb-bl-video").mapNotNull {
                 it.toSearchResult()
             }
-            if (!searchResponse.containsAll(results)) {
-                searchResponse.addAll(results)
-            } else {
-                break
-            }
+            searchResponse.addAll(results)
             if (results.isEmpty()) break
         }
-        return searchResponse
+        return searchResponse.distinctBy { it.url }
     }
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
         val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
-            ?: document.selectFirst("title")?.text()?.trim()?.replace(Regex(" - PornHat$"), "")?.trim()
+            ?: Regex("^HD ▶️ video (.*) - PornHat$").find(document.selectFirst("title")?.text()?.trim() ?: "")
+                ?.groupValues?.getOrNull(1)
+                ?.trim()
             ?: "No Title"
         val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
@@ -90,13 +90,20 @@ class Pornhat : MainAPI() {
                     "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
+                val videoUrl = try {
+                    val resp = app.get(src, referer = data)
+                    resp.text // redirected HLS URL
+                } catch (e: Exception) {
+                    src // fallback to original URL
+                }
                 callback.invoke(
                     newExtractorLink(
                         source = name,
-                        name = name,
-                        url = src
+                        name = "$name ${source.attr("title")}",
+                        url = videoUrl,
+                        type = ExtractorLinkType.M3U8
                     ) {
-                        this.referer = mainUrl
+                        this.referer = data
                         this.quality = quality
                     }
                 )
