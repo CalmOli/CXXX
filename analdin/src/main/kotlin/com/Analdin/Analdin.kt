@@ -12,11 +12,16 @@ class Analdin : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos",
+        "$mainUrl/most-popular/" to "Most Viewed",
+        "$mainUrl/top-rated/" to "Top Rated",
+        "$mainUrl/categories/" to "Categories",
+        "$mainUrl/models/" to "Models",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
         val document = app.get(url).document
         val home = document.select("div.list-videos > div.margin-fix div.item").mapNotNull {
             it.toSearchResult()
@@ -37,11 +42,12 @@ class Analdin : MainAPI() {
         val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
             ?: link.attr("title").ifEmpty { null }
             ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: href.substringAfterLast("/").substringBefore("/").replace("-", " ").replace("_", " ").trim().ifEmpty { null }
             ?: return null
         val img = this.selectFirst("img.thumb.lazy-load")
         val posterUrl = fixUrlNull(
             img?.attr("data-original")
-                ?: link.attr("thumb")
+                ?: link.attr("thumb").ifEmpty { null }
                 ?: img?.attr("src")
         )
         return newMovieSearchResponse(title, href, TvType.NSFW) {
