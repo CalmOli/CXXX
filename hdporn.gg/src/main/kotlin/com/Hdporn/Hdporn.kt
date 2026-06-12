@@ -16,8 +16,6 @@ class Hdporn : MainAPI() {
         "$mainUrl/latest-updates/" to "Latest Videos",
         "$mainUrl/top-rated/" to "Top Rated",
         "$mainUrl/most-popular/" to "Most Viewed",
-        "$mainUrl/categories/" to "Categories",
-        "$mainUrl/models/" to "Pornstars",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -45,7 +43,7 @@ class Hdporn : MainAPI() {
             ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
             ?: return null
         val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
+        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("data-original") ?: img?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
