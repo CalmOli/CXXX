@@ -69,11 +69,17 @@ class Hardsexvids : MainAPI() {
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
-        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
-        videoUrlRegex.findAll(docText).forEach {
-            var url = it.groupValues[1]
-            url = url.replaceFirst(Regex("^function/\\d+/"), "")
-            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+        document.select("video[src]").forEach { video ->
+            val src = video.attr("src")
+            if (src.isNotEmpty() && !src.contains(".jpg")) {
+                val quality = when {
+                    "720" in src -> Qualities.P720.value
+                    "480" in src -> Qualities.P480.value
+                    "360" in src -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                found.add(Pair(fixUrl(src), quality))
+            }
         }
 
         document.select("video source[src]").forEach { source ->
@@ -96,7 +102,13 @@ class Hardsexvids : MainAPI() {
         getFileRegex.findAll(docText).forEach {
             val url = it.value
             if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
-                found.add(Pair(url, Qualities.Unknown.value))
+                val quality = when {
+                    "720" in url -> Qualities.P720.value
+                    "480" in url -> Qualities.P480.value
+                    "360" in url -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                found.add(Pair(url, quality))
             }
         }
 
