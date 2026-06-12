@@ -29,7 +29,8 @@ class Spankbang : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get(request.data + page).document      
+        val url = if (page <= 1) request.data else request.data.trimEnd('/') + "/$page/"
+        val document = app.get(url).document      
         val home     = document.select("div.js-video-item").mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(
@@ -38,7 +39,7 @@ class Spankbang : MainAPI() {
                 list               = home,
                 isHorizontalImages = true
             ),
-            hasNext = true
+            hasNext = home.isNotEmpty()
         )
     }
 
@@ -89,21 +90,19 @@ class Spankbang : MainAPI() {
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
-
-        document.select("div#video_container").map { res ->
+        val src = document.selectFirst("div#video_container video source")?.attr("src")?.trim()
+        if (!src.isNullOrEmpty()) {
             callback.invoke(
                 newExtractorLink(
                     source = this.name,
                     name = this.name,
-                    url = fixUrl(res.selectFirst("video > source")?.attr("src")?.trim().toString()),
-                    type = ExtractorLinkType.M3U8
+                    url = fixUrl(src)
                 ) {
                     this.referer = data
                     this.quality = Qualities.Unknown.value
                 }
             )
         }
-
         return true
     }
 }
