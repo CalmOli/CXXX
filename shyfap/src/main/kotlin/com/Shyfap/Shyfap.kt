@@ -3,7 +3,9 @@ package com.Shyfap
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
+@CloudstreamPlugin
 class Shyfap : MainAPI() {
     override var mainUrl = "https://www.shyfap.net"
     override var name = "Shyfap"

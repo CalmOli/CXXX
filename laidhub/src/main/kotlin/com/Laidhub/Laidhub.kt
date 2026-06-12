@@ -3,7 +3,9 @@ package com.Laidhub
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
+@CloudstreamPlugin
 class Laidhub : MainAPI() {
     override var mainUrl = "https://www.laidhub.com"
     override var name = "Laidhub"

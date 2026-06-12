@@ -3,7 +3,9 @@ package com.Xxxtube
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
+@CloudstreamPlugin
 class Xxxtube : MainAPI() {
     override var mainUrl = "https://x-x-x.tube"
     override var name = "Xxxtube"
