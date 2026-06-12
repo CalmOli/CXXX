@@ -34,7 +34,7 @@ class Shyfap : MainAPI() {
     private fun Element.toSearchResult(): SearchResponse? {
         val link = this.selectFirst("a.media-card[href*=\"/video/\"]") ?: return null
         val href = fixUrl(link.attr("href"))
-        val title = link.selectFirst("div.media-card_title")?.text()?.trim()?.ifEmpty { null } ?: return null
+        val title = this.selectFirst("div.media-card_title")?.text()?.trim()?.ifEmpty { null } ?: return null
         val posterDiv = link.selectFirst("div.media-card_preview")
         val posterUrl = fixUrlNull(posterDiv?.attr("data-preview"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
@@ -76,10 +76,18 @@ class Shyfap : MainAPI() {
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
-        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        val videoUrlRegex = Regex("""video_(?:alt_)?url\d*\s*:\s*['"]([^'"]+)['"]""")
         videoUrlRegex.findAll(docText).forEach {
-            val url = it.groupValues[1]
-            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+            var url = it.groupValues[1]
+            val quality = when {
+                "2160" in url -> Qualities.P2160.value
+                "1080" in url -> Qualities.P1080.value
+                "720" in url -> Qualities.P720.value
+                "480" in url -> Qualities.P480.value
+                "360" in url -> Qualities.P360.value
+                else -> Qualities.Unknown.value
+            }
+            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), quality))
         }
 
         document.select("video source[src]").forEach { source ->
@@ -95,6 +103,22 @@ class Shyfap : MainAPI() {
                     else -> Qualities.Unknown.value
                 }
                 found.add(Pair(fixUrl(src), quality))
+            }
+        }
+
+        val getStreamRegex = Regex("""https?://[^"'\s]+get_stream[^"'\s]*\.mp4[^"'\s]*""")
+        getStreamRegex.findAll(docText).forEach {
+            val url = it.value
+            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
+                val quality = when {
+                    "1080" in url -> Qualities.P1080.value
+                    "720" in url -> Qualities.P720.value
+                    "480" in url -> Qualities.P480.value
+                    "360" in url -> Qualities.P360.value
+                    "2160" in url -> Qualities.P2160.value
+                    else -> Qualities.Unknown.value
+                }
+                found.add(Pair(url, quality))
             }
         }
 

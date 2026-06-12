@@ -12,11 +12,16 @@ class Neporn : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos",
+        "$mainUrl/top-rated/" to "Top Rated",
+        "$mainUrl/most-popular/" to "Most Viewed",
+        "$mainUrl/categories/" to "Categories",
+        "$mainUrl/models/" to "Models",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
         val document = app.get(url).document
         val home = document.select("div.margin-fix div.item").mapNotNull {
             it.toSearchResult()

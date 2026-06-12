@@ -82,6 +82,12 @@ class Laidhub : MainAPI() {
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
+        val contentUrlRegex = Regex(""""contentUrl"\s*:\s*"([^"]+)"""")
+        contentUrlRegex.findAll(docText).forEach {
+            val url = it.groupValues[1]
+            if (url.isNotEmpty() && url.contains(".mp4")) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+        }
+
         val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
         videoUrlRegex.findAll(docText).forEach {
             val url = it.groupValues[1]

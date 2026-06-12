@@ -71,7 +71,8 @@ class Hardsexvids : MainAPI() {
 
         val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
         videoUrlRegex.findAll(docText).forEach {
-            val url = it.groupValues[1]
+            var url = it.groupValues[1]
+            url = url.replaceFirst(Regex("^function/\\d+/"), "")
             if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
         }
 

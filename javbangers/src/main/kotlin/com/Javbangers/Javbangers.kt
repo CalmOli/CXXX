@@ -18,7 +18,7 @@ class Javbangers : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) mainUrl else "${request.data}$page"
         val document = app.get(url).document
-        val home = document.select("div.margin-fix div.item").mapNotNull {
+        val home = document.select("div.video-item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -37,7 +37,8 @@ class Javbangers : MainAPI() {
         val title = linkEl.attr("title").ifEmpty { null }
             ?: selectFirst("img")?.attr("alt")?.ifEmpty { null }
             ?: return null
-        val img = selectFirst("img.thumb.lazy-load[data-original]")
+        val img = selectFirst("img.cover.lazy-load[data-original]")
+            ?: selectFirst("img.thumb.lazy-load[data-original]")
         val posterUrl = fixUrlNull(
             img?.attr("data-original")
                 ?: img?.attr("src")
@@ -49,7 +50,7 @@ class Javbangers : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl/search/?q=$query").document
-        return document.select("div.margin-fix div.item").mapNotNull {
+        return document.select("div.video-item").mapNotNull {
             it.toSearchResult()
         }
     }

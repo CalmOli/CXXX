@@ -12,13 +12,14 @@ class Blowjobs : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/latest-updates/" to "Latest Videos"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "$mainUrl/latest-updates/$page/"
+        val base = request.data.trimEnd('/')
+        val url = if (page <= 1) request.data else "$base/$page/"
         val document = app.get(url).document
-        val home = document.select("div#list_videos_most_recent_videos_items div.item").mapNotNull {
+        val home = document.select("#list_videos_most_recent_videos_items div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
