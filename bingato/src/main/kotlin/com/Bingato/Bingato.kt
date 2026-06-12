@@ -17,8 +17,6 @@ class Bingato : MainAPI() {
         "$mainUrl/?sort_by=most%20viewed" to "Most Viewed",
         "$mainUrl/?sort_by=longest" to "Longest",
         "$mainUrl/?sort_by=quality" to "Quality",
-        "$mainUrl/categories" to "Categories",
-        "$mainUrl/babes" to "Stars",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {

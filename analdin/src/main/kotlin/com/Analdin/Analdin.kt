@@ -15,8 +15,6 @@ class Analdin : MainAPI() {
         "$mainUrl/latest-updates/" to "Latest Videos",
         "$mainUrl/most-popular/" to "Most Viewed",
         "$mainUrl/top-rated/" to "Top Rated",
-        "$mainUrl/categories/" to "Categories",
-        "$mainUrl/models/" to "Models",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -66,6 +64,7 @@ class Analdin : MainAPI() {
         val document = app.get(url).document
         val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")
+            ?: document.selectFirst("title")?.text()?.trim()?.ifEmpty { null }
             ?: "No Title"
         val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
