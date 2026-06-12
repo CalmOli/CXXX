@@ -116,10 +116,10 @@ class MissAVProvider : MainAPI() {
                         callback.invoke(newExtractorLink(name, name, videoUrl, ExtractorLinkType.M3U8) {
                             this.referer = data.url
                             this.quality = when (quality) {
-                                "360p" -> Qualities.Low.value
-                                "480p" -> Qualities.Medium.value
-                                "720p" -> Qualities.High.value
-                                "1080p" -> Qualities.Uhd.value
+                                "360p" -> Qualities.P360.value
+                                "480p" -> Qualities.P480.value
+                                "720p" -> Qualities.P720.value
+                                "1080p" -> Qualities.P1080.value
                                 else -> Qualities.Unknown.value
                             }
                         })

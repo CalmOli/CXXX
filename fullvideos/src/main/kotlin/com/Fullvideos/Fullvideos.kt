@@ -83,7 +83,7 @@ class Fullvideos : MainAPI() {
             if (src.isNotEmpty()) {
                 val label = source.attr("label")
                 val quality = when {
-                    "2160" in label -> Qualities.FourK.value
+                    "2160" in label -> Qualities.P2160.value
                     "1080" in label -> Qualities.P1080.value
                     "720" in label -> Qualities.P720.value
                     "480" in label -> Qualities.P480.value
