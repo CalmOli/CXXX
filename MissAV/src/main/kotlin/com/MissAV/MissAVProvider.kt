@@ -94,25 +94,60 @@ class MissAVProvider : MainAPI() {
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
+        val data = app.get(data)
+        val doc = data.document
 
-
-            val data = app.get(data)
-            val doc = data.document
-            getAndUnpack(data.text).let { unpackedText ->
-                val linkList = unpackedText.split(";")
-                val finalLink = "source='(.*)'".toRegex().find(linkList.first())?.groups?.get(1)?.value
-                callback.invoke(
-                    newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = finalLink.toString(),
-                    ExtractorLinkType.M3U8
-                ) {
-                    this.referer = ""
-                    this.quality = Qualities.Unknown.value
+        // Extract video UUID from surrit.com URL in the page
+        val uuid = Regex("surrit\\.com/([a-f0-9-]+)/").find(data.text)?.groupValues?.get(1)
+        if (uuid != null) {
+            val playlistUrl = "https://surrit.com/$uuid/playlist.m3u8"
+            try {
+                val playlistDoc = app.get(playlistUrl, referer = data.url).text
+                val qualities = Regex("(\\d+p)/video\\.m3u8").findAll(playlistDoc)
+                    .map { it.groupValues[1] }.toList()
+                if (qualities.isEmpty()) {
+                    // Fallback: use the playlist URL itself
+                    callback.invoke(newExtractorLink(name, name, playlistUrl, ExtractorLinkType.M3U8) {
+                        this.referer = data.url
+                    })
+                } else {
+                    qualities.forEach { quality ->
+                        val videoUrl = "https://surrit.com/$uuid/$quality/video.m3u8"
+                        callback.invoke(newExtractorLink(name, name, videoUrl, ExtractorLinkType.M3U8) {
+                            this.referer = data.url
+                            this.quality = when (quality) {
+                                "360p" -> Qualities.Low.value
+                                "480p" -> Qualities.Medium.value
+                                "720p" -> Qualities.High.value
+                                "1080p" -> Qualities.Uhd.value
+                                else -> Qualities.Unknown.value
+                            }
+                        })
+                    }
                 }
-                )
+            } catch (e: Exception) {
+                // Fallback to getAndUnpack if playlist fetch fails
+                getAndUnpack(data.text).let { unpackedText ->
+                    Regex("=\\s*'([^']+\\.m3u8[^']*)'").findAll(unpackedText)
+                        .map { it.groupValues[1] }.toList().distinct()
+                        .forEach { url ->
+                            callback.invoke(newExtractorLink(name, name, url, ExtractorLinkType.M3U8) {
+                                this.referer = data.url
+                            })
+                        }
+                }
             }
+        } else {
+            getAndUnpack(data.text).let { unpackedText ->
+                Regex("=\\s*'([^']+\\.m3u8[^']*)'").findAll(unpackedText)
+                    .map { it.groupValues[1] }.toList().distinct()
+                    .forEach { url ->
+                        callback.invoke(newExtractorLink(name, name, url, ExtractorLinkType.M3U8) {
+                            this.referer = data.url
+                        })
+                    }
+            }
+        }
 
         try {
             val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.trim().toString()

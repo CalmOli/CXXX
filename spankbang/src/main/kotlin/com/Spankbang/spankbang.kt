@@ -30,7 +30,7 @@ class Spankbang : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val document = app.get(request.data + page).document      
-        val home     = document.select("div.video-item").mapNotNull { it.toSearchResult() }
+        val home     = document.select("div.js-video-item").mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(
             list    = HomePageList(
@@ -43,9 +43,9 @@ class Spankbang : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse {
-        val title     = fixTitle(this.select("a.thumb > picture > img").attr("alt")).trim()
-        val href      = fixUrl(this.select("a.thumb").attr("href"))
-        val posterUrl = fixUrlNull(this.select("a.thumb > picture > img").attr("data-src"))
+        val title     = fixTitle(this.select("img").attr("alt")).trim()
+        val href      = fixUrl(this.select("a[href*='/video/']").attr("href"))
+        val posterUrl = fixUrlNull(this.select("img").attr("src"))
         Log.d("title","Title check")
 
         return newMovieSearchResponse(title, href, TvType.NSFW) {
@@ -59,7 +59,7 @@ class Spankbang : MainAPI() {
         for (i in 1..5) {
             val document = app.get("${mainUrl}/s/$query/$i/?o=all").document
 
-            val results = document.select("div.video-item").mapNotNull { it.toSearchResult() }
+            val results = document.select("div.js-video-item").mapNotNull { it.toSearchResult() }
 
             if (!searchResponse.containsAll(results)) {
                 searchResponse.addAll(results)
