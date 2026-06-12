@@ -31,7 +31,7 @@ class Spankbang : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) request.data else request.data.trimEnd('/') + "/$page/"
         val document = app.get(url).document      
-        val home     = document.select("div.js-video-item").mapNotNull { it.toSearchResult() }
+        val home     = document.select("div.video-list-with-ads > div.js-video-item").mapNotNull { it.toSearchResult() }.distinctBy { it.url }
 
         return newHomePageResponse(
             list    = HomePageList(
@@ -60,7 +60,7 @@ class Spankbang : MainAPI() {
         for (i in 1..5) {
             val document = app.get("${mainUrl}/s/$query/$i/?o=all").document
 
-            val results = document.select("div.js-video-item").mapNotNull { it.toSearchResult() }
+            val results = document.select("div.video-list-with-ads > div.js-video-item").mapNotNull { it.toSearchResult() }
 
             if (!searchResponse.containsAll(results)) {
                 searchResponse.addAll(results)
