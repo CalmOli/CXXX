@@ -66,9 +66,16 @@ class Analdin : MainAPI() {
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")
             ?: document.selectFirst("title")?.text()?.trim()?.ifEmpty { null }
             ?: "No Title"
+        val videoId = Regex("""/videos/(\d+)/""").find(url)?.groupValues?.get(1)
         val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+            ?: videoId?.let { id ->
+                val base = id.take(id.length - 3) + "000"
+                "https://i.analdin.com/contents/videos_screenshots/$base/$id/293x165/1.jpg"
+            }
+        val description = document.selectFirst("meta[name=description]")?.attr("content")?.trim()
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
+            this.plot = description
         }
     }
 

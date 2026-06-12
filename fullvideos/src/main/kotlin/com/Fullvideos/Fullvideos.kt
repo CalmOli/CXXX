@@ -15,8 +15,6 @@ class Fullvideos : MainAPI() {
         "$mainUrl/latest-updates/" to "Latest Videos",
         "$mainUrl/top-rated/" to "Top Rated",
         "$mainUrl/most-popular/" to "Most Viewed",
-        "$mainUrl/categories/" to "Categories",
-        "$mainUrl/models/" to "Pornstars",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
