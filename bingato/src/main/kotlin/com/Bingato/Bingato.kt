@@ -84,10 +84,10 @@ class Bingato : MainAPI() {
             if (src.isNotEmpty()) {
                 val label = source.attr("label")
                 val quality = when {
-                    "1080" in label -> Qualities.OneThousandEighty.value
-                    "720" in label -> Qualities.SeventeenTwenty.value
-                    "480" in label -> Qualities.FourHundredEighty.value
-                    "360" in label -> Qualities.ThreeHundredSixty.value
+                    "1080" in label -> Qualities.P1080.value
+                    "720" in label -> Qualities.P720.value
+                    "480" in label -> Qualities.P480.value
+                    "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
                 callback.invoke(
