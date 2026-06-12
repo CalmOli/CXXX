@@ -3,9 +3,7 @@ package com.Javbangers
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
-@CloudstreamPlugin
 class Javbangers : MainAPI() {
     override var mainUrl = "https://www.javbangers.com"
     override var name = "Javbangers"

@@ -3,9 +3,7 @@ package com.Freeuseporn
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
-@CloudstreamPlugin
 class Freeuseporn : MainAPI() {
     override var mainUrl = "https://www.freeuseporn.com"
     override var name = "Freeuseporn"

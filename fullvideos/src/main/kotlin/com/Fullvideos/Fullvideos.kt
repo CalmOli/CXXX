@@ -3,9 +3,7 @@ package com.Fullvideos
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
-@CloudstreamPlugin
 class Fullvideos : MainAPI() {
     override var mainUrl = "https://www.fullvideos.xxx"
     override var name = "Fullvideos"

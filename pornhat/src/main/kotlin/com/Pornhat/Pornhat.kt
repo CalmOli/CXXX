@@ -3,9 +3,7 @@ package com.Pornhat
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
-@CloudstreamPlugin
 class Pornhat : MainAPI() {
     override var mainUrl = "https://www.pornhat.com"
     override var name = "Pornhat"

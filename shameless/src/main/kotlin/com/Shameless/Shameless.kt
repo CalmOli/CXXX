@@ -3,9 +3,7 @@ package com.Shameless
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 
-@CloudstreamPlugin
 class Shameless : MainAPI() {
     override var mainUrl = "https://shameless.com"
     override var name = "Shameless"
