@@ -67,44 +67,20 @@ class Analdin : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"']+get_file[^"']+\.mp4""")
-        val videoId = data.substringAfterLast("/").substringBefore("?")
+        val found = mutableListOf<Pair<String, Int>>()
 
-        val links = regex.findAll(docText).map { it.value }.filter {
-            it.contains(videoId)
-        }.toList().ifEmpty {
-            regex.findAll(docText).map { it.value }.toList()
+        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        videoUrlRegex.findAll(docText).forEach {
+            val url = it.groupValues[1]
+            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
         }
 
-        for (link in links) {
-            val quality = when {
-                link.contains("hd.mp4", ignoreCase = true) -> Qualities.P1080.value
-                link.contains(".mp4") -> Qualities.P720.value
-                else -> Qualities.Unknown.value
-            }
-            callback.invoke(
-                newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = link,
-                ) {
-                    this.referer = mainUrl
-                    this.quality = quality
-                }
-            )
-        }
-
-        document.select("video source").forEach { source ->
+        document.select("video source[src]").forEach { source ->
             val src = source.attr("src")
-            if (src.isNotEmpty()) {
+            if (src.isNotEmpty() && !src.contains(".jpg")) {
                 val label = source.attr("label")
                 val quality = when {
                     "2160" in label -> Qualities.P2160.value
@@ -114,19 +90,36 @@ class Analdin : MainAPI() {
                     "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = src,
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
-                    }
-                )
+                found.add(Pair(fixUrl(src), quality))
             }
         }
 
-        return true
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
+        getFileRegex.findAll(docText).forEach {
+            val url = it.value
+            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
+                found.add(Pair(url, Qualities.Unknown.value))
+            }
+        }
+
+        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
+        cdnRegex.findAll(docText).forEach {
+            found.add(Pair(it.value, Qualities.Unknown.value))
+        }
+
+        val unique = found.distinctBy { it.first }
+        for ((url, quality) in unique) {
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = url,
+                ) {
+                    this.referer = mainUrl
+                    this.quality = quality
+                }
+            )
+        }
+        return unique.isNotEmpty()
     }
 }

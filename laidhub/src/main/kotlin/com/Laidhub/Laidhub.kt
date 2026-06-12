@@ -77,75 +77,59 @@ class Laidhub : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
+        val found = mutableListOf<Pair<String, Int>>()
+
+        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        videoUrlRegex.findAll(docText).forEach {
+            val url = it.groupValues[1]
+            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+        }
 
         document.select("video source[src]").forEach { source ->
             val src = source.attr("src")
-            if (src.isNotEmpty()) {
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = src
-                    ) {
-                        this.referer = mainUrl
-                    }
-                )
-            }
-        }
-
-        val fullUrlPatterns = listOf(
-            Regex("""https?://[^"'\s]+cdn\.laidhub\.com[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*"""),
-            Regex("""https?://[^"'\s]+\.laidhub\.com[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*"""),
-        )
-
-        val groupPatterns = listOf(
-            Regex("""(?:src|url)\s*[:=]\s*["']([^"']+\.(?:mp4|m3u8)[^"']*)"""),
-            Regex("""video_url\s*[:=]\s*["']([^"']+)"""),
-            Regex("""source\s*:\s*["']([^"']+\.mp4[^"']*)"""),
-        )
-
-        for (pattern in fullUrlPatterns) {
-            for (match in pattern.findAll(docText)) {
-                val link = match.value
-                if (link.isNotEmpty()) {
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = name,
-                            url = link
-                        ) {
-                            this.referer = mainUrl
-                        }
-                    )
+            if (src.isNotEmpty() && !src.contains(".jpg")) {
+                val label = source.attr("label")
+                val quality = when {
+                    "2160" in label -> Qualities.P2160.value
+                    "1080" in label -> Qualities.P1080.value
+                    "720" in label -> Qualities.P720.value
+                    "480" in label -> Qualities.P480.value
+                    "360" in label -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
                 }
+                found.add(Pair(fixUrl(src), quality))
             }
         }
 
-        for (pattern in groupPatterns) {
-            for (match in pattern.findAll(docText)) {
-                val link = match.groupValues[1]
-                if (link.isNotEmpty()) {
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = name,
-                            url = link
-                        ) {
-                            this.referer = mainUrl
-                        }
-                    )
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
+        getFileRegex.findAll(docText).forEach {
+            val url = it.value
+            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
+                found.add(Pair(url, Qualities.Unknown.value))
+            }
+        }
+
+        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
+        cdnRegex.findAll(docText).forEach {
+            found.add(Pair(it.value, Qualities.Unknown.value))
+        }
+
+        val unique = found.distinctBy { it.first }
+        for ((url, quality) in unique) {
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = url,
+                ) {
+                    this.referer = mainUrl
+                    this.quality = quality
                 }
-            }
+            )
         }
-
-        return true
+        return unique.isNotEmpty()
     }
 }

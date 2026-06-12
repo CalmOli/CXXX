@@ -19,7 +19,7 @@ class Hdporn : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) request.data else "$mainUrl/page/$page/"
         val document = app.get(url).document
-        val home = document.select("div.video-item").mapNotNull {
+        val home = document.select("div.item").mapNotNull {
             it.toSearchResult()
         }
         return newHomePageResponse(
@@ -34,10 +34,13 @@ class Hdporn : MainAPI() {
 
     private fun Element.toSearchResult(): SearchResponse? {
         val link = this.selectFirst("a[href*=\"/videos/\"]") ?: return null
-        val title = link.attr("title").ifEmpty { return null }
         val href = fixUrl(link.attr("href"))
+        val title = this.selectFirst("strong.title")?.text()?.trim()
+            ?: link.attr("title").ifEmpty { null }
+            ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
+            ?: return null
         val img = this.selectFirst("img")
-        val posterUrl = fixUrlNull(img?.attr("data-src"))
+        val posterUrl = fixUrlNull(img?.attr("data-src") ?: img?.attr("src"))
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
@@ -48,7 +51,7 @@ class Hdporn : MainAPI() {
         for (i in 1..5) {
             val url = if (i == 1) "$mainUrl/search/?q=$query" else "$mainUrl/search/page/$i/?q=$query"
             val document = app.get(url).document
-            val results = document.select("div.video-item").mapNotNull {
+            val results = document.select("div.item").mapNotNull {
                 it.toSearchResult()
             }
             if (!searchResponse.containsAll(results)) {
@@ -72,16 +75,20 @@ class Hdporn : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
-        document.select("video source").forEach { source ->
+        val docText = document.toString()
+        val found = mutableListOf<Pair<String, Int>>()
+
+        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        videoUrlRegex.findAll(docText).forEach {
+            val url = it.groupValues[1]
+            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+        }
+
+        document.select("video source[src]").forEach { source ->
             val src = source.attr("src")
-            if (src.isNotEmpty()) {
+            if (src.isNotEmpty() && !src.contains(".jpg")) {
                 val label = source.attr("label")
                 val quality = when {
                     "2160" in label -> Qualities.P2160.value
@@ -91,18 +98,36 @@ class Hdporn : MainAPI() {
                     "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = src
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
-                    }
-                )
+                found.add(Pair(fixUrl(src), quality))
             }
         }
-        return true
+
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
+        getFileRegex.findAll(docText).forEach {
+            val url = it.value
+            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
+                found.add(Pair(url, Qualities.Unknown.value))
+            }
+        }
+
+        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
+        cdnRegex.findAll(docText).forEach {
+            found.add(Pair(it.value, Qualities.Unknown.value))
+        }
+
+        val unique = found.distinctBy { it.first }
+        for ((url, quality) in unique) {
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = this.name,
+                    url = url,
+                ) {
+                    this.referer = mainUrl
+                    this.quality = quality
+                }
+            )
+        }
+        return unique.isNotEmpty()
     }
 }

@@ -65,43 +65,59 @@ class Neporn : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
-        val regex = Regex("""https?://[^"'\s<>]+neporn\.com/get_file/[^"'\s<>]+\.mp4[^"'\s<>]*""")
-        val links = regex.findAll(docText).map { it.value }.filter { !it.contains("_preview") }.distinct().toList()
-        for (link in links) {
+        val found = mutableListOf<Pair<String, Int>>()
+
+        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        videoUrlRegex.findAll(docText).forEach {
+            val url = it.groupValues[1]
+            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
+        }
+
+        document.select("video source[src]").forEach { source ->
+            val src = source.attr("src")
+            if (src.isNotEmpty() && !src.contains(".jpg")) {
+                val label = source.attr("label")
+                val quality = when {
+                    "2160" in label -> Qualities.P2160.value
+                    "1080" in label -> Qualities.P1080.value
+                    "720" in label -> Qualities.P720.value
+                    "480" in label -> Qualities.P480.value
+                    "360" in label -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                found.add(Pair(fixUrl(src), quality))
+            }
+        }
+
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
+        getFileRegex.findAll(docText).forEach {
+            val url = it.value
+            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
+                found.add(Pair(url, Qualities.Unknown.value))
+            }
+        }
+
+        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
+        cdnRegex.findAll(docText).forEach {
+            found.add(Pair(it.value, Qualities.Unknown.value))
+        }
+
+        val unique = found.distinctBy { it.first }
+        for ((url, quality) in unique) {
             callback.invoke(
                 newExtractorLink(
                     source = this.name,
                     name = this.name,
-                    url = link
+                    url = url,
                 ) {
                     this.referer = mainUrl
-                    this.quality = Qualities.Unknown.value
+                    this.quality = quality
                 }
             )
         }
-        document.select("video source").forEach { source ->
-            val src = source.attr("src")
-            if (src.isNotEmpty()) {
-                callback.invoke(
-                    newExtractorLink(
-                        source = this.name,
-                        name = this.name,
-                        url = fixUrl(src)
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-            }
-        }
-        return true
+        return unique.isNotEmpty()
     }
 }
