@@ -93,15 +93,47 @@ class Xxxtube : MainAPI() {
         val obj = JSONObject(res)
         val pageUrl = obj.optString("page", data)
 
-        val docText = app.get(pageUrl).text
+        val doc = app.get(pageUrl).document
+        val docText = doc.toString()
         val videoUrls = mutableListOf<Pair<String, Int>>()
         val urlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
         for (match in urlRegex.findAll(docText)) {
-            videoUrls.add(Pair(match.groupValues[1].replace(Regex("""/$"""), ""), Qualities.Unknown.value))
+            videoUrls.add(Pair(match.groupValues[1].trimEnd('/'), Qualities.Unknown.value))
         }
         val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
         for (match in getFileRegex.findAll(docText)) {
-            val u = match.value
+            val u = match.value.trimEnd('/')
+            if (!u.contains("_preview") && !u.contains("_vthumb") && !u.contains("screenshots") && !u.contains(".jpg")) {
+                videoUrls.add(Pair(u, Qualities.Unknown.value))
+            }
+        }
+        doc.select("source[src]").forEach { source ->
+            val src = source.attr("src").trimEnd('/')
+            if (src.isNotEmpty() && !src.contains(".jpg") && !src.contains("_preview")) {
+                val quality = when {
+                    "2160" in src -> Qualities.P2160.value
+                    "1080" in src -> Qualities.P1080.value
+                    "720" in src -> Qualities.P720.value
+                    "480" in src -> Qualities.P480.value
+                    "360" in src -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                videoUrls.add(Pair(fixUrl(src), quality))
+            }
+        }
+        for (prop in listOf("og:video", "og:video:url", "og:video:secure_url")) {
+            val meta = doc.selectFirst("meta[property=$prop]")
+            if (meta != null) {
+                val src = meta.attr("content").trimEnd('/')
+                if (src.isNotEmpty()) {
+                    videoUrls.add(Pair(fixUrl(src), Qualities.Unknown.value))
+                    break
+                }
+            }
+        }
+        val mp4Regex = Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""")
+        for (match in mp4Regex.findAll(docText)) {
+            val u = match.value.trimEnd('/')
             if (!u.contains("_preview") && !u.contains("_vthumb") && !u.contains("screenshots") && !u.contains(".jpg")) {
                 videoUrls.add(Pair(u, Qualities.Unknown.value))
             }
@@ -110,10 +142,11 @@ class Xxxtube : MainAPI() {
         val seen = mutableSetOf<String>()
         var count = 0
         for ((url, quality) in videoUrls) {
-            if (seen.contains(url)) continue
-            seen.add(url)
+            val cleaned = url.trimEnd('/')
+            if (seen.contains(cleaned)) continue
+            seen.add(cleaned)
             callback.invoke(
-                newExtractorLink(name, name, url) {
+                newExtractorLink(name, name, cleaned) {
                     this.referer = pageUrl
                     this.quality = quality
                 }
