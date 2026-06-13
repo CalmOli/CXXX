@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(*)"
+      "WebFetch(*)",
+      "Bash(curl -sI -L \"https://porn-app.com/download\" 2>&1 | head -50)",
+      "Bash(curl -L -o /tmp/AIO_Streamer_v6.6.4.apk \"https://porn-app.com/download\" 2>&1 | tail -5)",
+      "Bash(which jadx || which apktool || \\(apt-get update -qq && apt-get install -y -qq jadx 2>&1 | tail -5\\) || echo \"Need to install jadx\")",
+      "Bash(apk add --no-cache jadx 2>&1 | tail -10)",
+      "Bash(mkdir -p /tmp/apk_extracted && cd /tmp/apk_extracted && unzip -o /tmp/AIO_Streamer_v6.6.4.apk 2>&1 | tail -20)",
+      "Bash(ls -la /tmp/apk_extracted/ | head -30)",
+      "Bash(ls -la /tmp/apk_extracted/assets/ 2>/dev/null || echo \"No assets directory\")",
+      "Bash(ls:*)"
     ]
   }
 }

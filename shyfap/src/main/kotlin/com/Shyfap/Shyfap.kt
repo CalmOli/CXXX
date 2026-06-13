@@ -150,28 +150,9 @@ class Shyfap : MainAPI() {
         val unique = found.distinctBy { it.first }
         var count = 0
         for ((url, quality) in unique) {
-            if (url.contains("get_stream")) {
-                try {
-                    val resp = app.get(url, headers = mapOf("Referer" to data), timeout = 15).response
-                    val cdnUrl = resp.request.url.toString()
-                    val ct = resp.header("Content-Type") ?: ""
-                    if (cdnUrl != url) {
-                        val isM3u8 = ct.contains("mpegurl") || ct.contains("m3u") || cdnUrl.contains(".m3u8")
-                        callback.invoke(
-                            newExtractorLink(source = this.name, name = this.name, url = cdnUrl, if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.MP4) {
-                                this.referer = data
-                                this.quality = quality
-                            }
-                        )
-                        count++
-                        continue
-                    }
-                } catch (_: Exception) {}
-            }
-
             val isM3u8 = url.contains(".m3u8")
             callback.invoke(
-                newExtractorLink(source = this.name, name = this.name, url = url, if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.MP4) {
+                newExtractorLink(source = this.name, name = this.name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
                     this.referer = data
                     this.quality = quality
                 }

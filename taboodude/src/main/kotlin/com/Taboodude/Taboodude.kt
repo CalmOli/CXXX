@@ -130,9 +130,8 @@ class Taboodude : MainAPI() {
         val unique = found.distinctBy { it.first }
         for ((url, quality) in unique) {
             val isM3u8 = url.contains(".m3u8")
-            val type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.MP4
             callback.invoke(
-                newExtractorLink(source = this.name, name = this.name, url = url, type) {
+                newExtractorLink(source = this.name, name = this.name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
                     this.referer = data
                     this.quality = quality
                 }
