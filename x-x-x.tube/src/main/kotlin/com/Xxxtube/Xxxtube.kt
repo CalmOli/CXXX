@@ -95,34 +95,49 @@ class Xxxtube : MainAPI() {
         var count = 0
         val seen = mutableSetOf<String>()
 
+        // Always visit page first to establish session cookies for get_file URLs
+        val doc = try { app.get(pageUrl).document } catch (_: Exception) { null }
+        val docText = doc?.toString()
+
         // Strategy 1: Use Worker-extracted sources if available
         if (obj.has("sources")) {
             val srcArr = obj.getJSONArray("sources")
             for (i in 0 until srcArr.length()) {
                 val src = srcArr.getJSONObject(i)
-                val url = src.getString("url").trimEnd('/')
+                var url = src.getString("url")
+                // get_file URLs need trailing slash; others can be cleaned
+                if (!url.contains("/get_file/")) url = url.trimEnd('/')
                 if (url.isEmpty() || seen.contains(url)) continue
                 seen.add(url)
                 val quality = src.optInt("quality", Qualities.Unknown.value)
-                callback.invoke(
-                    newExtractorLink(source = name, name = name, url = url) {
-                        this.referer = pageUrl
-                        this.quality = quality
-                    }
-                )
+                val isM3u8 = src.optBoolean("isM3u8", false) || url.contains(".m3u8")
+                if (isM3u8) {
+                    callback.invoke(
+                        newExtractorLink(source = name, name = name, url = url, ExtractorLinkType.M3U8) {
+                            this.referer = pageUrl
+                            this.quality = quality
+                        }
+                    )
+                } else {
+                    callback.invoke(
+                        newExtractorLink(source = name, name = name, url = url) {
+                            this.referer = pageUrl
+                            this.quality = quality
+                        }
+                    )
+                }
                 count++
             }
         }
 
         // Strategy 2: Fallback - extract from page directly
         if (count == 0) {
-            val doc = try { app.get(pageUrl).document } catch (_: Exception) { null }
-            if (doc != null) {
-                val docText = doc.toString()
+            if (docText != null) {
                 val videoUrls = mutableListOf<Pair<String, Int>>()
 
                 fun addUrl(url: String, quality: Int = Qualities.Unknown.value) {
-                    val cleaned = url.trimEnd('/')
+                    var cleaned = url
+                    if (!cleaned.contains("/get_file/")) cleaned = cleaned.trimEnd('/')
                     if (cleaned.isEmpty() || seen.contains(cleaned)) return
                     if (Regex("""_preview|_vthumb|screenshots|\.jpg|_trailer|preview\.mp4|/preview/|sexu-preview""").containsMatchIn(cleaned)) return
                     val q = if (quality != Qualities.Unknown.value) quality else when {

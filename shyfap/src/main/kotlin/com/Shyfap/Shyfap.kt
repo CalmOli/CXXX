@@ -147,12 +147,22 @@ class Shyfap : MainAPI() {
         val unique = found.distinctBy { it.first }
         var count = 0
         for ((url, quality) in unique) {
-            callback.invoke(
-                newExtractorLink(source = this.name, name = this.name, url = url) {
-                    this.referer = data
-                    this.quality = quality
-                }
-            )
+            val isM3u8 = url.contains(".m3u8")
+            if (isM3u8) {
+                callback.invoke(
+                    newExtractorLink(source = this.name, name = this.name, url = url, ExtractorLinkType.M3U8) {
+                        this.referer = data
+                        this.quality = quality
+                    }
+                )
+            } else {
+                callback.invoke(
+                    newExtractorLink(source = this.name, name = this.name, url = url) {
+                        this.referer = data
+                        this.quality = quality
+                    }
+                )
+            }
             count++
         }
         return count > 0
