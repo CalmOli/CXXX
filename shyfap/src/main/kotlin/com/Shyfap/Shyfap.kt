@@ -75,79 +75,86 @@ class Shyfap : MainAPI() {
         val document = app.get(data).document
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
+        val previewRe = Regex("""_preview|_vthumb|_trailer|screenshots|\.jpg|preview\.mp4|/preview/|sexu-preview""")
+
+        fun cleanUrl(url: String): String = fixUrl(url).trimEnd('/')
+        fun isValid(url: String): Boolean = url.isNotEmpty() && !previewRe.containsMatchIn(url)
 
         val videoUrlRegex = Regex("""video_(?:alt_)?url\d*\s*:\s*['"]([^'"]+)['"]""")
         videoUrlRegex.findAll(docText).forEach {
-            var url = it.groupValues[1]
-            val quality = when {
-                "2160" in url -> Qualities.P2160.value
-                "1080" in url -> Qualities.P1080.value
-                "720" in url -> Qualities.P720.value
-                "480" in url -> Qualities.P480.value
-                "360" in url -> Qualities.P360.value
-                else -> Qualities.Unknown.value
+            val url = it.groupValues[1]
+            if (url.isNotEmpty() && !url.startsWith("function/")) {
+                val quality = when {
+                    "2160" in url || "4k" in url -> Qualities.P2160.value
+                    "1080" in url -> Qualities.P1080.value
+                    "720" in url -> Qualities.P720.value
+                    "480" in url -> Qualities.P480.value
+                    "360" in url -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                found.add(Pair(cleanUrl(url), quality))
             }
-            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), quality))
         }
 
-        document.select("video source[src]").forEach { source ->
+        document.select("video source[src], source[src]").forEach { source ->
             val src = source.attr("src")
-            if (src.isNotEmpty() && !src.contains(".jpg")) {
+            if (isValid(src)) {
                 val label = source.attr("label")
                 val quality = when {
-                    "2160" in label -> Qualities.P2160.value
+                    "2160" in label || "4k" in label -> Qualities.P2160.value
                     "1080" in label -> Qualities.P1080.value
                     "720" in label -> Qualities.P720.value
                     "480" in label -> Qualities.P480.value
                     "360" in label -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
-                found.add(Pair(fixUrl(src), quality))
+                found.add(Pair(cleanUrl(src), quality))
             }
         }
 
-        val getStreamRegex = Regex("""https?://[^"'\s]+get_stream[^"'\s]*\.mp4[^"'\s]*""")
-        getStreamRegex.findAll(docText).forEach {
-            val url = it.value
-            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
-                val quality = when {
-                    "1080" in url -> Qualities.P1080.value
-                    "720" in url -> Qualities.P720.value
-                    "480" in url -> Qualities.P480.value
-                    "360" in url -> Qualities.P360.value
-                    "2160" in url -> Qualities.P2160.value
-                    else -> Qualities.Unknown.value
+        for (prop in listOf("og:video", "og:video:url", "og:video:secure_url")) {
+            val meta = document.selectFirst("meta[property=$prop]")
+            if (meta != null) {
+                val src = meta.attr("content")
+                if (isValid(src)) { found.add(Pair(cleanUrl(src), Qualities.Unknown.value)); break }
+            }
+        }
+
+        val urlRegexes = listOf(
+            Regex("""https?://[^"'\s]+get_stream[^"'\s]*\.mp4[^"'\s]*"""),
+            Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*"""),
+            Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*"""),
+            Regex("""https?://[^"'\s<>]+\.mp4(?!\/[^"'\s<>]*\.(?:jpg|png|gif|webp))[^"'\s<>]*"""),
+            Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*"""),
+        )
+        for (re in urlRegexes) {
+            re.findAll(docText).forEach {
+                val url = it.value
+                if (isValid(url)) {
+                    val quality = when {
+                        "2160" in url || "4k" in url -> Qualities.P2160.value
+                        "1080" in url -> Qualities.P1080.value
+                        "720" in url -> Qualities.P720.value
+                        "480" in url -> Qualities.P480.value
+                        "360" in url -> Qualities.P360.value
+                        else -> Qualities.Unknown.value
+                    }
+                    found.add(Pair(cleanUrl(url), quality))
                 }
-                found.add(Pair(url, quality))
             }
-        }
-
-        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
-        getFileRegex.findAll(docText).forEach {
-            val url = it.value
-            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
-                found.add(Pair(url, Qualities.Unknown.value))
-            }
-        }
-
-        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
-        cdnRegex.findAll(docText).forEach {
-            found.add(Pair(it.value, Qualities.Unknown.value))
         }
 
         val unique = found.distinctBy { it.first }
+        var count = 0
         for ((url, quality) in unique) {
             callback.invoke(
-                newExtractorLink(
-                    source = this.name,
-                    name = this.name,
-                    url = url,
-                ) {
+                newExtractorLink(source = this.name, name = this.name, url = url) {
                     this.referer = data
                     this.quality = quality
                 }
             )
+            count++
         }
-        return unique.isNotEmpty()
+        return count > 0
     }
 }
