@@ -2,136 +2,119 @@ package com.Analdin
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import org.jsoup.nodes.Element
+import org.json.JSONObject
 
 class Analdin : MainAPI() {
-    override var mainUrl = "https://www.analdin.com"
+    override var mainUrl = "https://cloudstream-scraper.calm-oil.workers.dev"
     override var name = "Analdin"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
+    private val providerName = "analdin"
 
     override val mainPage = mainPageOf(
-        "$mainUrl/latest-updates/" to "Latest Videos",
-        "$mainUrl/most-popular/" to "Most Viewed",
-        "$mainUrl/top-rated/" to "Top Rated",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Latest Videos",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Most Viewed",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Top Rated",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val base = request.data.trimEnd('/')
-        val url = if (page <= 1) request.data else "$base/$page/"
-        val document = app.get(url).document
-        val home = document.select("div.list-videos > div.margin-fix div.item").mapNotNull {
-            it.toSearchResult()
-        }
-        return newHomePageResponse(
-            list = HomePageList(
-                name = request.name,
-                list = home,
-                isHorizontalImages = true
-            ),
-            hasNext = true
-        )
-    }
+        val res = app.get(request.data).text
+        val obj = JSONObject(res)
+        val sections = obj.getJSONArray("sections")
+        val list = mutableListOf<SearchResponse>()
 
-    private fun Element.toSearchResult(): SearchResponse? {
-        val link = this.selectFirst("a.popup-video-link, a[href*=\"/videos/\"]") ?: return null
-        val href = fixUrl(link.attr("href"))
-        val title = this.selectFirst("strong.title")?.text()?.trim()?.ifEmpty { null }
-            ?: link.attr("title").ifEmpty { null }
-            ?: this.selectFirst("img")?.attr("alt")?.ifEmpty { null }
-            ?: href.substringAfterLast("/").substringBefore("/").replace("-", " ").replace("_", " ").trim().ifEmpty { null }
-            ?: return null
-        val img = this.selectFirst("img.thumb.lazy-load")
-        val posterUrl = fixUrlNull(
-            img?.attr("data-original")
-                ?: link.attr("thumb").ifEmpty { null }
-                ?: img?.attr("src")
-        )
-        return newMovieSearchResponse(title, href, TvType.NSFW) {
-            this.posterUrl = posterUrl
+        for (i in 0 until sections.length()) {
+            val section = sections.getJSONObject(i)
+            if (section.getString("name") == request.name) {
+                val items = section.getJSONArray("items")
+                for (j in 0 until items.length()) {
+                    val item = items.getJSONObject(j)
+                    val url = item.getString("url")
+                    val title = item.getString("title")
+                    val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+                    list.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                        this.posterUrl = poster
+                    })
+                }
+                break
+            }
         }
+
+        return newHomePageResponse(
+            list = HomePageList(request.name, list, isHorizontalImages = true),
+            hasNext = false
+        )
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query/").document
-        return document.select("div.item").mapNotNull {
-            it.toSearchResult()
+        val url = "$mainUrl/api/search?provider=$providerName&q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        val res = app.get(url).text
+        val obj = JSONObject(res)
+        val items = obj.getJSONArray("items")
+        val results = mutableListOf<SearchResponse>()
+
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            val url = item.getString("url")
+            val title = item.getString("title")
+            val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+            results.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                this.posterUrl = poster
+            })
         }
+
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
-        val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
-            ?: document.selectFirst("meta[property=og:title]")?.attr("content")
-            ?: document.selectFirst("title")?.text()?.trim()?.ifEmpty { null }
-            ?: "No Title"
-        val videoId = Regex("""/videos/(\d+)/""").find(url)?.groupValues?.get(1)
-        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
-            ?: videoId?.let { id ->
-                val base = id.take(id.length - 3) + "000"
-                "https://i.analdin.com/contents/videos_screenshots/$base/$id/293x165/1.jpg"
-            }
-        val description = document.selectFirst("meta[name=description]")?.attr("content")?.trim()
+        val encoded = java.net.URLEncoder.encode(url, "UTF-8")
+        val apiUrl = "$mainUrl/api/load?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+        val title = obj.optString("title", "No Title")
+        val poster = if (obj.has("poster") && !obj.isNull("poster")) obj.getString("poster") else null
+        val description = if (obj.has("description") && !obj.isNull("description")) obj.getString("description") else null
+
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
             this.plot = description
         }
     }
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val document = app.get(data).document
-        val docText = document.toString()
-        val found = mutableListOf<Pair<String, Int>>()
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val encoded = java.net.URLEncoder.encode(data, "UTF-8")
+        val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+        val sources = obj.getJSONArray("sources")
+        var count = 0
 
-        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
-        videoUrlRegex.findAll(docText).forEach {
-            val url = it.groupValues[1]
-            if (url.isNotEmpty()) found.add(Pair(fixUrl(url), Qualities.Unknown.value))
-        }
-
-        document.select("video source[src]").forEach { source ->
-            val src = source.attr("src")
-            if (src.isNotEmpty() && !src.contains(".jpg")) {
-                val label = source.attr("label")
-                val quality = when {
-                    "2160" in label -> Qualities.P2160.value
-                    "1080" in label -> Qualities.P1080.value
-                    "720" in label -> Qualities.P720.value
-                    "480" in label -> Qualities.P480.value
-                    "360" in label -> Qualities.P360.value
-                    else -> Qualities.Unknown.value
-                }
-                found.add(Pair(fixUrl(src), quality))
-            }
-        }
-
-        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
-        getFileRegex.findAll(docText).forEach {
-            val url = it.value
-            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots") && !url.contains(".jpg")) {
-                found.add(Pair(url, Qualities.Unknown.value))
-            }
-        }
-
-        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
-        cdnRegex.findAll(docText).forEach {
-            found.add(Pair(it.value, Qualities.Unknown.value))
-        }
-
-        val unique = found.distinctBy { it.first }
-        for ((url, quality) in unique) {
+        for (i in 0 until sources.length()) {
+            val src = sources.getJSONObject(i)
+            val url = src.getString("url")
+            val quality = src.optString("quality", "Unknown")
             callback.invoke(
-                newExtractorLink(
-                    source = this.name,
-                    name = this.name,
-                    url = url,
-                ) {
-                    this.referer = mainUrl
-                    this.quality = quality
+                newExtractorLink(name, name, url) {
+                    this.referer = data
+                    this.quality = when {
+                        quality.contains("2160") -> Qualities.P2160.value
+                        quality.contains("1080") -> Qualities.P1080.value
+                        quality.contains("720") -> Qualities.P720.value
+                        quality.contains("480") -> Qualities.P480.value
+                        quality.contains("360") -> Qualities.P360.value
+                        else -> Qualities.Unknown.value
+                    }
                 }
             )
+            count++
         }
-        return unique.isNotEmpty()
+
+        return count > 0
     }
 }

@@ -2,77 +2,81 @@ package com.Sexu
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import org.jsoup.nodes.Element
+import org.json.JSONObject
 
 class Sexu : MainAPI() {
-    override var mainUrl = "https://sexu.com"
+    override var mainUrl = "https://cloudstream-scraper.calm-oil.workers.dev"
     override var name = "Sexu"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
-    override val vpnStatus = VPNStatus.MightBeNeeded
+    private val providerName = "sexu"
 
     override val mainPage = mainPageOf(
-        mainUrl to "Latest Videos"
+        "$mainUrl/api/mainpage?provider=$providerName" to "Latest Videos",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get(request.data).document
-        val items = document.select("li.grid__item").mapNotNull { item ->
-            val titleEl = item.selectFirst("a.item__title") ?: return@mapNotNull null
-            val linkEl = item.selectFirst("a.item__main[href]") ?: return@mapNotNull null
-            val imgEl = item.selectFirst("img.item__inner[src]") ?: return@mapNotNull null
+        val res = app.get(request.data).text
+        val obj = JSONObject(res)
+        val sections = obj.getJSONArray("sections")
+        val list = mutableListOf<SearchResponse>()
 
-            val title = titleEl.text().trim()
-            val href = fixUrl(linkEl.attr("href"))
-            val poster = fixUrlNull(imgEl.attr("src"))
-
-            newMovieSearchResponse(title, href, TvType.NSFW) {
-                this.posterUrl = poster
+        for (i in 0 until sections.length()) {
+            val section = sections.getJSONObject(i)
+            if (section.getString("name") == request.name) {
+                val items = section.getJSONArray("items")
+                for (j in 0 until items.length()) {
+                    val item = items.getJSONObject(j)
+                    val url = item.getString("url")
+                    val title = item.getString("title")
+                    val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+                    list.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                        this.posterUrl = poster
+                    })
+                }
+                break
             }
         }
+
         return newHomePageResponse(
-            list = HomePageList(
-                name = request.name,
-                list = items,
-                isHorizontalImages = true
-            ),
-            hasNext = page < 5
+            list = HomePageList(request.name, list, isHorizontalImages = true),
+            hasNext = false
         )
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val searchResponse = mutableListOf<SearchResponse>()
-        for (i in 1..5) {
-            val url = if (i == 1) "$mainUrl/search/$query/" else "$mainUrl/search/$query/page/$i/"
-            val document = try { app.get(url).document } catch (e: Exception) { break }
-            val results = document.select("li.grid__item").mapNotNull { item ->
-                val titleEl = item.selectFirst("a.item__title") ?: return@mapNotNull null
-                val linkEl = item.selectFirst("a.item__main[href]") ?: return@mapNotNull null
-                val imgEl = item.selectFirst("img.item__inner[src]")
+        val url = "$mainUrl/api/search?provider=$providerName&q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        val res = app.get(url).text
+        val obj = JSONObject(res)
+        val items = obj.getJSONArray("items")
+        val results = mutableListOf<SearchResponse>()
 
-                val title = titleEl.text().trim()
-                val href = fixUrl(linkEl.attr("href"))
-                val poster = imgEl?.attr("src")?.let { fixUrlNull(it) }
-
-                newMovieSearchResponse(title, href, TvType.NSFW) {
-                    this.posterUrl = poster
-                }
-            }
-            if (results.isEmpty()) break
-            searchResponse.addAll(results)
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            val url = item.getString("url")
+            val title = item.getString("title")
+            val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+            results.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                this.posterUrl = poster
+            })
         }
-        return searchResponse
+
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
-        val title = document.selectFirst("meta[property=og:title]")?.attr("content")
-            ?: document.selectFirst("h1")?.text()?.trim()
-            ?: "No Title"
-        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+        val encoded = java.net.URLEncoder.encode(url, "UTF-8")
+        val apiUrl = "$mainUrl/api/load?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+        val title = obj.optString("title", "No Title")
+        val poster = if (obj.has("poster") && !obj.isNull("poster")) obj.getString("poster") else null
+        val description = if (obj.has("description") && !obj.isNull("description")) obj.getString("description") else null
+
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
+            this.plot = description
         }
     }
 
@@ -82,49 +86,33 @@ class Sexu : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-        document.select("source").forEach { source ->
-            val src = source.attr("src")
-            if (src.isNotEmpty()) {
-                val url = if (src.startsWith("//")) "https:$src" else src
-                val label = source.attr("label").ifEmpty {
-                    source.attr("title").ifEmpty { "" }
-                }
-                val quality = when {
-                    "1080" in label -> Qualities.P1080.value
-                    "720" in label -> Qualities.P720.value
-                    "480" in label -> Qualities.P480.value
-                    "360" in label -> Qualities.P360.value
-                    else -> Qualities.Unknown.value
-                }
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name - $label".trimEnd('-', ' ').ifBlank { name },
-                        url = url
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = quality
+        val encoded = java.net.URLEncoder.encode(data, "UTF-8")
+        val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+        val sources = obj.getJSONArray("sources")
+        var count = 0
+
+        for (i in 0 until sources.length()) {
+            val src = sources.getJSONObject(i)
+            val url = src.getString("url")
+            val quality = src.optString("quality", "Unknown")
+            callback.invoke(
+                newExtractorLink(name, name, url) {
+                    this.referer = data
+                    this.quality = when {
+                        quality.contains("2160") -> Qualities.P2160.value
+                        quality.contains("1080") -> Qualities.P1080.value
+                        quality.contains("720") -> Qualities.P720.value
+                        quality.contains("480") -> Qualities.P480.value
+                        quality.contains("360") -> Qualities.P360.value
+                        else -> Qualities.Unknown.value
                     }
-                )
-            }
+                }
+            )
+            count++
         }
-        document.select("video[src]").forEach { video ->
-            val src = video.attr("src")
-            if (src.isNotEmpty()) {
-                val url = if (src.startsWith("//")) "https:$src" else src
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = url
-                    ) {
-                        this.referer = mainUrl
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-            }
-        }
-        return true
+
+        return count > 0
     }
 }
