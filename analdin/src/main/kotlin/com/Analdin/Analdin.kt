@@ -92,29 +92,35 @@ class Analdin : MainAPI() {
         val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
         val res = app.get(apiUrl).text
         val obj = JSONObject(res)
-        val sources = obj.getJSONArray("sources")
-        var count = 0
+        val pageUrl = obj.optString("page", data)
 
-        for (i in 0 until sources.length()) {
-            val src = sources.getJSONObject(i)
-            val url = src.getString("url")
-            val quality = src.optString("quality", "Unknown")
+        val docText = app.get(pageUrl).text
+        val videoUrls = mutableListOf<Pair<String, Int>>()
+        val urlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
+        for (match in urlRegex.findAll(docText)) {
+            videoUrls.add(Pair(match.groupValues[1].replace(Regex("""/$"""), ""), Qualities.Unknown.value))
+        }
+        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
+        for (match in getFileRegex.findAll(docText)) {
+            val u = match.value
+            if (!u.contains("_preview") && !u.contains("_vthumb") && !u.contains("screenshots") && !u.contains(".jpg")) {
+                videoUrls.add(Pair(u, Qualities.Unknown.value))
+            }
+        }
+
+        val seen = mutableSetOf<String>()
+        var count = 0
+        for ((url, quality) in videoUrls) {
+            if (seen.contains(url)) continue
+            seen.add(url)
             callback.invoke(
                 newExtractorLink(name, name, url) {
-                    this.referer = data
-                    this.quality = when {
-                        quality.contains("2160") -> Qualities.P2160.value
-                        quality.contains("1080") -> Qualities.P1080.value
-                        quality.contains("720") -> Qualities.P720.value
-                        quality.contains("480") -> Qualities.P480.value
-                        quality.contains("360") -> Qualities.P360.value
-                        else -> Qualities.Unknown.value
-                    }
+                    this.referer = pageUrl
+                    this.quality = quality
                 }
             )
             count++
         }
-
         return count > 0
     }
 }
