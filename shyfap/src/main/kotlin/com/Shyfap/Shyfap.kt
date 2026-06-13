@@ -77,7 +77,10 @@ class Shyfap : MainAPI() {
         val found = mutableListOf<Pair<String, Int>>()
         val previewRe = Regex("""_preview|_vthumb|_trailer|screenshots|\.jpg|preview\.mp4|/preview/|sexu-preview""")
 
-        fun cleanUrl(url: String): String = fixUrl(url).trimEnd('/')
+        fun cleanUrl(url: String): String {
+            val u = fixUrl(url)
+            return if (u.contains("/get_file/")) u else u.trimEnd('/')
+        }
         fun isValid(url: String): Boolean = url.isNotEmpty() && !previewRe.containsMatchIn(url)
 
         val videoUrlRegex = Regex("""video_(?:alt_)?url\d*\s*:\s*['"]([^'"]+)['"]""")
@@ -147,22 +150,32 @@ class Shyfap : MainAPI() {
         val unique = found.distinctBy { it.first }
         var count = 0
         for ((url, quality) in unique) {
-            val isM3u8 = url.contains(".m3u8")
-            if (isM3u8) {
-                callback.invoke(
-                    newExtractorLink(source = this.name, name = this.name, url = url, ExtractorLinkType.M3U8) {
-                        this.referer = data
-                        this.quality = quality
+            if (url.contains("get_stream")) {
+                try {
+                    val resp = app.get(url, headers = mapOf("Referer" to data), timeout = 15).response
+                    val cdnUrl = resp.request.url.toString()
+                    val ct = resp.header("Content-Type") ?: ""
+                    if (cdnUrl != url) {
+                        val isM3u8 = ct.contains("mpegurl") || ct.contains("m3u") || cdnUrl.contains(".m3u8")
+                        callback.invoke(
+                            newExtractorLink(source = this.name, name = this.name, url = cdnUrl, if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.MP4) {
+                                this.referer = data
+                                this.quality = quality
+                            }
+                        )
+                        count++
+                        continue
                     }
-                )
-            } else {
-                callback.invoke(
-                    newExtractorLink(source = this.name, name = this.name, url = url) {
-                        this.referer = data
-                        this.quality = quality
-                    }
-                )
+                } catch (_: Exception) {}
             }
+
+            val isM3u8 = url.contains(".m3u8")
+            callback.invoke(
+                newExtractorLink(source = this.name, name = this.name, url = url, if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.MP4) {
+                    this.referer = data
+                    this.quality = quality
+                }
+            )
             count++
         }
         return count > 0
