@@ -1,6 +1,5 @@
 package com.Taboodude
 
-import com.PornAppApi.PornAppApi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.json.JSONObject
@@ -95,27 +94,7 @@ class Taboodude : MainAPI() {
         val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
         val res = app.get(apiUrl).text
         val obj = JSONObject(res)
-
         val html = obj.optString("html", null)
-        if (!html.isNullOrEmpty()) {
-            try {
-                val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
-                if (streams.isNotEmpty()) {
-                    for (stream in streams) {
-                        if (stream.url.isEmpty() || seen.contains(stream.url)) continue
-                        seen.add(stream.url)
-                        callback.invoke(
-                            newExtractorLink(source = name, name = name, url = stream.url) {
-                                this.referer = pageUrl
-                                this.quality = stream.quality
-                            }
-                        )
-                        count++
-                    }
-                    return count > 0
-                }
-            } catch (_: Exception) { }
-        }
 
         val pageUrl2 = obj.optString("page", pageUrl)
         if (obj.has("sources")) {
