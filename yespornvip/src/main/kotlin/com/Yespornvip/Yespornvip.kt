@@ -4,7 +4,6 @@ import com.PornAppApi.PornAppApi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.json.JSONObject
-import org.jsoup.nodes.Element
 
 class Yespornvip : MainAPI() {
     override var mainUrl = "https://cloudstream-scraper.calm-oil.workers.dev"
@@ -94,35 +93,33 @@ class Yespornvip : MainAPI() {
         var count = 0
         val seen = mutableSetOf<String>()
 
-        try {
-            val doc = app.get(pageUrl).document
-            val html = doc.toString()
-            val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
-            if (streams.isNotEmpty()) {
-                for (stream in streams) {
-                    if (stream.url.isEmpty() || seen.contains(stream.url)) continue
-                    seen.add(stream.url)
-                    callback.invoke(
-                        newExtractorLink(source = name, name = name, url = stream.url) {
-                            this.referer = pageUrl
-                            this.quality = stream.quality
-                        }
-                    )
-                    count++
-                }
-                return count > 0
-            }
-        } catch (_: Exception) { }
-
-        val encoded = java.net.URLEncoder.encode(data, "UTF-8")
+        val encoded = java.net.URLEncoder.encode(pageUrl, "UTF-8")
         val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
         val res = app.get(apiUrl).text
         val obj = JSONObject(res)
-        val pageUrl2 = obj.optString("page", data)
 
-        val doc = try { app.get(pageUrl2).document } catch (_: Exception) { null }
-        val docText = doc?.toString()
+        val html = obj.optString("html", null)
+        if (!html.isNullOrEmpty()) {
+            try {
+                val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
+                if (streams.isNotEmpty()) {
+                    for (stream in streams) {
+                        if (stream.url.isEmpty() || seen.contains(stream.url)) continue
+                        seen.add(stream.url)
+                        callback.invoke(
+                            newExtractorLink(source = name, name = name, url = stream.url) {
+                                this.referer = pageUrl
+                                this.quality = stream.quality
+                            }
+                        )
+                        count++
+                    }
+                    return count > 0
+                }
+            } catch (_: Exception) { }
+        }
 
+        val pageUrl2 = obj.optString("page", pageUrl)
         if (obj.has("sources")) {
             val srcArr = obj.getJSONArray("sources")
             for (i in 0 until srcArr.length()) {
@@ -133,26 +130,17 @@ class Yespornvip : MainAPI() {
                 seen.add(url)
                 val quality = src.optInt("quality", Qualities.Unknown.value)
                 val isM3u8 = src.optBoolean("isM3u8", false) || url.contains(".m3u8")
-                if (isM3u8) {
-                    callback.invoke(
-                        newExtractorLink(source = name, name = name, url = url, ExtractorLinkType.M3U8) {
-                            this.referer = pageUrl2
-                            this.quality = quality
-                        }
-                    )
-                } else {
-                    callback.invoke(
-                        newExtractorLink(source = name, name = name, url = url) {
-                            this.referer = pageUrl2
-                            this.quality = quality
-                        }
-                    )
-                }
+                callback.invoke(
+                    newExtractorLink(source = name, name = name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
+                        this.referer = pageUrl2
+                        this.quality = quality
+                    }
+                )
                 count++
             }
         }
 
-        if (count == 0 && docText != null) {
+        if (count == 0 && html != null) {
             val videoUrls = mutableListOf<Pair<String, Int>>()
 
             fun addUrl(url: String, quality: Int = Qualities.Unknown.value) {
@@ -172,33 +160,20 @@ class Yespornvip : MainAPI() {
                 videoUrls.add(Pair(cleaned, q))
             }
 
-            Regex("""video_url\s*:\s*['"]([^'"]+)['"]""").findAll(docText).forEach {
+            Regex("""video_url\s*:\s*['"]([^'"]+)['"]""").findAll(html).forEach {
                 val u = it.groupValues[1]
                 if (!u.startsWith("function/")) addUrl(u)
             }
 
-            Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""").findAll(docText).forEach {
+            Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""").findAll(html).forEach {
                 addUrl(it.value)
             }
 
-            doc.select("source[src]").forEach { source ->
-                val src = source.attr("src")
-                if (src.isNotEmpty()) addUrl(fixUrl(src))
-            }
-
-            for (prop in listOf("og:video", "og:video:url", "og:video:secure_url")) {
-                val meta = doc.selectFirst("meta[property=$prop]")
-                if (meta != null) {
-                    val content = meta.attr("content")
-                    if (content.isNotEmpty()) { addUrl(fixUrl(content)); break }
-                }
-            }
-
-            Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(docText).forEach {
+            Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(html).forEach {
                 addUrl(it.value)
             }
 
-            Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""").findAll(docText).forEach {
+            Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""").findAll(html).forEach {
                 addUrl(it.value)
             }
 

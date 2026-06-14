@@ -3,73 +3,81 @@ package com.Taboodude
 import com.PornAppApi.PornAppApi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import org.jsoup.nodes.Element
+import org.json.JSONObject
 
 class Taboodude : MainAPI() {
-    override var mainUrl = "https://www.taboodude.com"
+    override var mainUrl = "https://cloudstream-scraper.calm-oil.workers.dev"
     override var name = "Taboodude"
     override val hasMainPage = true
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
-    override val vpnStatus = VPNStatus.MightBeNeeded
     private val providerName = "taboodudecom"
 
     override val mainPage = mainPageOf(
-        "$mainUrl/" to "Latest Videos",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Latest Videos",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else request.data
-        val document = app.get(url).document
-        val home = document.select("a[href*=\"/video/\"]").mapNotNull { a ->
-            val href = fixUrl(a.attr("href"))
-            val title = a.attr("title").ifEmpty {
-                a.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
+        val res = app.get(request.data).text
+        val obj = JSONObject(res)
+        val sections = obj.getJSONArray("sections")
+        val list = mutableListOf<SearchResponse>()
+
+        for (i in 0 until sections.length()) {
+            val section = sections.getJSONObject(i)
+            if (section.getString("name") == request.name) {
+                val items = section.getJSONArray("items")
+                for (j in 0 until items.length()) {
+                    val item = items.getJSONObject(j)
+                    val url = item.getString("url")
+                    val title = item.getString("title")
+                    val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+                    list.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                        this.posterUrl = poster
+                    })
+                }
+                break
             }
-            val poster = a.selectFirst("img")?.attr("src")
-            newMovieSearchResponse(title, href, TvType.NSFW) {
-                this.posterUrl = fixUrlNull(poster)
-            }
-        }.distinctBy { it.url }
+        }
+
         return newHomePageResponse(
-            list = HomePageList(
-                name = request.name,
-                list = home,
-                isHorizontalImages = true
-            ),
-            hasNext = true
+            list = HomePageList(request.name, list, isHorizontalImages = true),
+            hasNext = false
         )
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val searchResponse = mutableListOf<SearchResponse>()
-        for (i in 1..5) {
-            val url = "$mainUrl/search?q=$query&page=$i"
-            val document = app.get(url).document
-            val results = document.select("a[href*=\"/video/\"]").mapNotNull { a ->
-                val href = fixUrl(a.attr("href"))
-                val title = a.attr("title").ifEmpty {
-                    a.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
-                }
-                val poster = a.selectFirst("img")?.attr("src")
-                newMovieSearchResponse(title, href, TvType.NSFW) {
-                    this.posterUrl = fixUrlNull(poster)
-                }
-            }.distinctBy { it.url }
-            if (results.isEmpty()) break
-            searchResponse.addAll(results)
+        val url = "$mainUrl/api/search?provider=$providerName&q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        val res = app.get(url).text
+        val obj = JSONObject(res)
+        val items = obj.getJSONArray("items")
+        val results = mutableListOf<SearchResponse>()
+
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            val url = item.getString("url")
+            val title = item.getString("title")
+            val poster = if (item.has("poster") && !item.isNull("poster")) item.getString("poster") else null
+            results.add(newMovieSearchResponse(title, url, TvType.NSFW) {
+                this.posterUrl = poster
+            })
         }
-        return searchResponse.distinctBy { it.url }
+
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).document
-        val title = document.selectFirst("h1")?.text()?.trim()?.ifEmpty { null }
-            ?: document.selectFirst("meta[property=og:title]")?.attr("content")
-            ?: "No Title"
-        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+        val encoded = java.net.URLEncoder.encode(url, "UTF-8")
+        val apiUrl = "$mainUrl/api/load?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+        val title = obj.optString("title", "No Title")
+        val poster = if (obj.has("poster") && !obj.isNull("poster")) obj.getString("poster") else null
+        val description = if (obj.has("description") && !obj.isNull("description")) obj.getString("description") else null
+
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
+            this.plot = description
         }
     }
 
@@ -80,96 +88,104 @@ class Taboodude : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val pageUrl = data
+        var count = 0
         val seen = mutableSetOf<String>()
 
-        // Strategy 1: PornApp API - resolves anti-leeched get_file URLs
-        try {
-            val doc = app.get(pageUrl).document
-            val html = doc.toString()
-            val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
-            if (streams.isNotEmpty()) {
-                var count = 0
-                for (stream in streams) {
-                    if (stream.url.isEmpty() || seen.contains(stream.url)) continue
-                    seen.add(stream.url)
-                    callback.invoke(
-                        newExtractorLink(source = name, name = name, url = stream.url) {
-                            this.referer = pageUrl
-                            this.quality = stream.quality
-                        }
-                    )
-                    count++
+        val encoded = java.net.URLEncoder.encode(pageUrl, "UTF-8")
+        val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
+        val res = app.get(apiUrl).text
+        val obj = JSONObject(res)
+
+        val html = obj.optString("html", null)
+        if (!html.isNullOrEmpty()) {
+            try {
+                val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
+                if (streams.isNotEmpty()) {
+                    for (stream in streams) {
+                        if (stream.url.isEmpty() || seen.contains(stream.url)) continue
+                        seen.add(stream.url)
+                        callback.invoke(
+                            newExtractorLink(source = name, name = name, url = stream.url) {
+                                this.referer = pageUrl
+                                this.quality = stream.quality
+                            }
+                        )
+                        count++
+                    }
+                    return count > 0
                 }
-                return count > 0
-            }
-        } catch (_: Exception) { }
-
-        // Strategy 2: Direct extraction from page (fallback)
-        val document = app.get(pageUrl).document
-        val docText = document.toString()
-        val found = mutableListOf<Pair<String, Int>>()
-
-        fun addUrl(rawUrl: String, quality: Int = Qualities.Unknown.value) {
-            if (rawUrl.isEmpty() || rawUrl.contains(".jpg")) return
-            val url = fixUrl(rawUrl)
-            if (found.any { it.first == url } || seen.contains(url)) return
-            found.add(Pair(url, quality))
+            } catch (_: Exception) { }
         }
 
-        fun inferQuality(text: String): Int = when {
-            "2160" in text || "4k" in text -> Qualities.P2160.value
-            "1080" in text -> Qualities.P1080.value
-            "720" in text -> Qualities.P720.value
-            "480" in text -> Qualities.P480.value
-            "360" in text -> Qualities.P360.value
-            else -> Qualities.Unknown.value
-        }
-
-        val videoUrlRegex = Regex("""video_url\s*:\s*['"]([^'"]+)['"]""")
-        videoUrlRegex.findAll(docText).forEach {
-            val url = it.groupValues[1]
-            if (url.isNotEmpty()) addUrl(url)
-        }
-
-        document.select("video source[src], source[src]").forEach { source ->
-            val src = source.attr("src")
-            if (src.isNotEmpty()) {
-                val label = source.attr("label")
-                addUrl(src, inferQuality(label))
+        val pageUrl2 = obj.optString("page", pageUrl)
+        if (obj.has("sources")) {
+            val srcArr = obj.getJSONArray("sources")
+            for (i in 0 until srcArr.length()) {
+                val src = srcArr.getJSONObject(i)
+                var url = src.getString("url")
+                if (!url.contains("/get_file/")) url = url.trimEnd('/')
+                if (url.isEmpty() || seen.contains(url)) continue
+                seen.add(url)
+                val quality = src.optInt("quality", Qualities.Unknown.value)
+                val isM3u8 = src.optBoolean("isM3u8", false) || url.contains(".m3u8")
+                callback.invoke(
+                    newExtractorLink(source = name, name = name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
+                        this.referer = pageUrl2
+                        this.quality = quality
+                    }
+                )
+                count++
             }
         }
 
-        val getFileRegex = Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""")
-        getFileRegex.findAll(docText).forEach {
-            val url = it.value
-            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots")) {
-                addUrl(url, inferQuality(url))
-            }
-        }
+        if (count == 0 && html != null) {
+            val videoUrls = mutableListOf<Pair<String, Int>>()
 
-        val cdnRegex = Regex("""https?://[^"'\s<>]+\.(?:bkcdn|bxcdn)[^"'\s<>]*\.mp4[^"'\s<>]*""")
-        cdnRegex.findAll(docText).forEach {
-            addUrl(it.value)
-        }
-
-        val mp4Regex = Regex("""https?://[^"'\s<>]+\.mp4(?!\/[^"'\s<>]*\.(?:jpg|png|gif|webp))[^"'\s<>]*""")
-        mp4Regex.findAll(docText).forEach {
-            val url = it.value
-            if (!url.contains("_preview") && !url.contains("_vthumb") && !url.contains("_trailer") && !url.contains("screenshots")) {
-                addUrl(url, inferQuality(url))
-            }
-        }
-
-        val unique = found.distinctBy { it.first }
-        for ((url, quality) in unique) {
-            val isM3u8 = url.contains(".m3u8")
-            callback.invoke(
-                newExtractorLink(source = this.name, name = this.name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
-                    this.referer = pageUrl
-                    this.quality = quality
+            fun addUrl(url: String, quality: Int = Qualities.Unknown.value) {
+                var cleaned = url
+                if (!cleaned.contains("/get_file/")) cleaned = cleaned.trimEnd('/')
+                if (cleaned.isEmpty() || seen.contains(cleaned)) return
+                if (Regex("""_preview|_vthumb|screenshots|\.jpg|_trailer|preview\.mp4|/preview/|sexu-preview""").containsMatchIn(cleaned)) return
+                val q = if (quality != Qualities.Unknown.value) quality else when {
+                    "2160" in cleaned || "4k" in cleaned -> Qualities.P2160.value
+                    "1080" in cleaned -> Qualities.P1080.value
+                    "720" in cleaned -> Qualities.P720.value
+                    "480" in cleaned -> Qualities.P480.value
+                    "360" in cleaned -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
                 }
-            )
+                seen.add(cleaned)
+                videoUrls.add(Pair(cleaned, q))
+            }
+
+            Regex("""video_url\s*:\s*['"]([^'"]+)['"]""").findAll(html).forEach {
+                val u = it.groupValues[1]
+                if (!u.startsWith("function/")) addUrl(u)
+            }
+
+            Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""").findAll(html).forEach {
+                addUrl(it.value)
+            }
+
+            Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(html).forEach {
+                addUrl(it.value)
+            }
+
+            Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""").findAll(html).forEach {
+                addUrl(it.value)
+            }
+
+            for ((url, quality) in videoUrls) {
+                callback.invoke(
+                    newExtractorLink(source = name, name = name, url = url) {
+                        this.referer = pageUrl2
+                        this.quality = quality
+                    }
+                )
+                count++
+            }
         }
-        return unique.isNotEmpty()
+
+        return count > 0
     }
 }
