@@ -97,6 +97,7 @@ class Yespornvip : MainAPI() {
         val res = app.get(apiUrl).text
         val obj = JSONObject(res)
         val html = obj.optString("html", null)
+        val cookies = obj.optString("cookies", "")
 
         val pageUrl2 = obj.optString("page", pageUrl)
         if (obj.has("sources")) {
@@ -113,6 +114,7 @@ class Yespornvip : MainAPI() {
                     newExtractorLink(source = name, name = name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
                         this.referer = pageUrl2
                         this.quality = quality
+                        if (cookies.isNotEmpty()) this.headers = mapOf("Cookie" to cookies)
                     }
                 )
                 count++
@@ -161,6 +163,7 @@ class Yespornvip : MainAPI() {
                     newExtractorLink(source = name, name = name, url = url) {
                         this.referer = pageUrl2
                         this.quality = quality
+                        if (cookies.isNotEmpty()) this.headers = mapOf("Cookie" to cookies)
                     }
                 )
                 count++
