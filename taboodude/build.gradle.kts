@@ -12,3 +12,7 @@ cloudstream {
 
     language = "en"
 }
+
+dependencies {
+    implementation(project(":pornapi"))
+}

@@ -1,5 +1,6 @@
 package com.Taboodude
 
+import com.PornAppApi.PornAppApi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
@@ -11,6 +12,7 @@ class Taboodude : MainAPI() {
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW)
     override val vpnStatus = VPNStatus.MightBeNeeded
+    private val providerName = "taboodudecom"
 
     override val mainPage = mainPageOf(
         "$mainUrl/" to "Latest Videos",
@@ -71,15 +73,46 @@ class Taboodude : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val document = app.get(data).document
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val pageUrl = data
+        val seen = mutableSetOf<String>()
+
+        // Strategy 1: PornApp API - resolves anti-leeched get_file URLs
+        try {
+            val doc = app.get(pageUrl).document
+            val html = doc.toString()
+            val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
+            if (streams.isNotEmpty()) {
+                var count = 0
+                for (stream in streams) {
+                    if (stream.url.isEmpty() || seen.contains(stream.url)) continue
+                    seen.add(stream.url)
+                    callback.invoke(
+                        newExtractorLink(source = name, name = name, url = stream.url) {
+                            this.referer = pageUrl
+                            this.quality = stream.quality
+                        }
+                    )
+                    count++
+                }
+                return count > 0
+            }
+        } catch (_: Exception) { }
+
+        // Strategy 2: Direct extraction from page (fallback)
+        val document = app.get(pageUrl).document
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
 
         fun addUrl(rawUrl: String, quality: Int = Qualities.Unknown.value) {
             if (rawUrl.isEmpty() || rawUrl.contains(".jpg")) return
             val url = fixUrl(rawUrl)
-            if (found.any { it.first == url }) return
+            if (found.any { it.first == url } || seen.contains(url)) return
             found.add(Pair(url, quality))
         }
 
@@ -132,7 +165,7 @@ class Taboodude : MainAPI() {
             val isM3u8 = url.contains(".m3u8")
             callback.invoke(
                 newExtractorLink(source = this.name, name = this.name, url = url, type = if (isM3u8) ExtractorLinkType.M3U8 else null) {
-                    this.referer = data
+                    this.referer = pageUrl
                     this.quality = quality
                 }
             )

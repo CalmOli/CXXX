@@ -1,5 +1,6 @@
 package com.Yespornvip
 
+import com.PornAppApi.PornAppApi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.json.JSONObject
@@ -89,25 +90,44 @@ class Yespornvip : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        val pageUrl = data
+        var count = 0
+        val seen = mutableSetOf<String>()
+
+        try {
+            val doc = app.get(pageUrl).document
+            val html = doc.toString()
+            val streams = PornAppApi.getStreamUrls(providerName, html, pageUrl)
+            if (streams.isNotEmpty()) {
+                for (stream in streams) {
+                    if (stream.url.isEmpty() || seen.contains(stream.url)) continue
+                    seen.add(stream.url)
+                    callback.invoke(
+                        newExtractorLink(source = name, name = name, url = stream.url) {
+                            this.referer = pageUrl
+                            this.quality = stream.quality
+                        }
+                    )
+                    count++
+                }
+                return count > 0
+            }
+        } catch (_: Exception) { }
+
         val encoded = java.net.URLEncoder.encode(data, "UTF-8")
         val apiUrl = "$mainUrl/api/loadlinks?provider=$providerName&url=$encoded"
         val res = app.get(apiUrl).text
         val obj = JSONObject(res)
-        val pageUrl = obj.optString("page", data)
-        var count = 0
-        val seen = mutableSetOf<String>()
+        val pageUrl2 = obj.optString("page", data)
 
-        // Always visit page first to establish session cookies for get_file URLs
-        val doc = try { app.get(pageUrl).document } catch (_: Exception) { null }
+        val doc = try { app.get(pageUrl2).document } catch (_: Exception) { null }
         val docText = doc?.toString()
 
-        // Strategy 1: Use Worker-extracted sources if available
         if (obj.has("sources")) {
             val srcArr = obj.getJSONArray("sources")
             for (i in 0 until srcArr.length()) {
                 val src = srcArr.getJSONObject(i)
                 var url = src.getString("url")
-                // get_file URLs need trailing slash; others can be cleaned
                 if (!url.contains("/get_file/")) url = url.trimEnd('/')
                 if (url.isEmpty() || seen.contains(url)) continue
                 seen.add(url)
@@ -116,14 +136,14 @@ class Yespornvip : MainAPI() {
                 if (isM3u8) {
                     callback.invoke(
                         newExtractorLink(source = name, name = name, url = url, ExtractorLinkType.M3U8) {
-                            this.referer = pageUrl
+                            this.referer = pageUrl2
                             this.quality = quality
                         }
                     )
                 } else {
                     callback.invoke(
                         newExtractorLink(source = name, name = name, url = url) {
-                            this.referer = pageUrl
+                            this.referer = pageUrl2
                             this.quality = quality
                         }
                     )
@@ -132,73 +152,64 @@ class Yespornvip : MainAPI() {
             }
         }
 
-        // Strategy 2: Fallback - extract from page directly
-        if (count == 0) {
-            if (docText != null) {
-                val videoUrls = mutableListOf<Pair<String, Int>>()
+        if (count == 0 && docText != null) {
+            val videoUrls = mutableListOf<Pair<String, Int>>()
 
-                fun addUrl(url: String, quality: Int = Qualities.Unknown.value) {
-                    var cleaned = url
-                    if (!cleaned.contains("/get_file/")) cleaned = cleaned.trimEnd('/')
-                    if (cleaned.isEmpty() || seen.contains(cleaned)) return
-                    if (Regex("""_preview|_vthumb|screenshots|\.jpg|_trailer|preview\.mp4|/preview/|sexu-preview""").containsMatchIn(cleaned)) return
-                    val q = if (quality != Qualities.Unknown.value) quality else when {
-                        "2160" in cleaned || "4k" in cleaned -> Qualities.P2160.value
-                        "1080" in cleaned -> Qualities.P1080.value
-                        "720" in cleaned -> Qualities.P720.value
-                        "480" in cleaned -> Qualities.P480.value
-                        "360" in cleaned -> Qualities.P360.value
-                        else -> Qualities.Unknown.value
+            fun addUrl(url: String, quality: Int = Qualities.Unknown.value) {
+                var cleaned = url
+                if (!cleaned.contains("/get_file/")) cleaned = cleaned.trimEnd('/')
+                if (cleaned.isEmpty() || seen.contains(cleaned)) return
+                if (Regex("""_preview|_vthumb|screenshots|\.jpg|_trailer|preview\.mp4|/preview/|sexu-preview""").containsMatchIn(cleaned)) return
+                val q = if (quality != Qualities.Unknown.value) quality else when {
+                    "2160" in cleaned || "4k" in cleaned -> Qualities.P2160.value
+                    "1080" in cleaned -> Qualities.P1080.value
+                    "720" in cleaned -> Qualities.P720.value
+                    "480" in cleaned -> Qualities.P480.value
+                    "360" in cleaned -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+                seen.add(cleaned)
+                videoUrls.add(Pair(cleaned, q))
+            }
+
+            Regex("""video_url\s*:\s*['"]([^'"]+)['"]""").findAll(docText).forEach {
+                val u = it.groupValues[1]
+                if (!u.startsWith("function/")) addUrl(u)
+            }
+
+            Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""").findAll(docText).forEach {
+                addUrl(it.value)
+            }
+
+            doc.select("source[src]").forEach { source ->
+                val src = source.attr("src")
+                if (src.isNotEmpty()) addUrl(fixUrl(src))
+            }
+
+            for (prop in listOf("og:video", "og:video:url", "og:video:secure_url")) {
+                val meta = doc.selectFirst("meta[property=$prop]")
+                if (meta != null) {
+                    val content = meta.attr("content")
+                    if (content.isNotEmpty()) { addUrl(fixUrl(content)); break }
+                }
+            }
+
+            Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(docText).forEach {
+                addUrl(it.value)
+            }
+
+            Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""").findAll(docText).forEach {
+                addUrl(it.value)
+            }
+
+            for ((url, quality) in videoUrls) {
+                callback.invoke(
+                    newExtractorLink(source = name, name = name, url = url) {
+                        this.referer = pageUrl2
+                        this.quality = quality
                     }
-                    seen.add(cleaned)
-                    videoUrls.add(Pair(cleaned, q))
-                }
-
-                // video_url JS variable
-                Regex("""video_url\s*:\s*['"]([^'"]+)['"]""").findAll(docText).forEach {
-                    val u = it.groupValues[1]
-                    if (!u.startsWith("function/")) addUrl(u)
-                }
-
-                // get_file URLs
-                Regex("""https?://[^"'\s]+get_file[^"'\s]*\.mp4[^"'\s]*""").findAll(docText).forEach {
-                    addUrl(it.value)
-                }
-
-                // <source src> tags
-                doc.select("source[src]").forEach { source ->
-                    val src = source.attr("src")
-                    if (src.isNotEmpty()) addUrl(fixUrl(src))
-                }
-
-                // og:video meta tags
-                for (prop in listOf("og:video", "og:video:url", "og:video:secure_url")) {
-                    val meta = doc.selectFirst("meta[property=$prop]")
-                    if (meta != null) {
-                        val content = meta.attr("content")
-                        if (content.isNotEmpty()) { addUrl(fixUrl(content)); break }
-                    }
-                }
-
-                // direct .mp4 URLs
-                Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(docText).forEach {
-                    addUrl(it.value)
-                }
-
-                // .m3u8 URLs
-                Regex("""https?://[^"'\s<>]+\.m3u8[^"'\s<>]*""").findAll(docText).forEach {
-                    addUrl(it.value)
-                }
-
-                for ((url, quality) in videoUrls) {
-                    callback.invoke(
-                        newExtractorLink(source = name, name = name, url = url) {
-                            this.referer = pageUrl
-                            this.quality = quality
-                        }
-                    )
-                    count++
-                }
+                )
+                count++
             }
         }
 
