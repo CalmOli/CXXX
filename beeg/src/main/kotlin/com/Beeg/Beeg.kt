@@ -119,7 +119,8 @@ class Beeg : MainAPI() {
             val facts = fcFacts.getJSONObject(0)
             val thumbs = facts.optJSONArray("fc_thumbs")
             if (thumbs != null && thumbs.length() > 0) {
-                return "https://img.beeg.com/$fileId/thumb_${thumbs.getInt(0)}.jpg"
+                val imgUrl = "https://img.beeg.com/$fileId/thumb_${thumbs.getInt(0)}.jpg"
+                return "https://cloudstream-scraper.calm-oil.workers.dev/api/img?url=${java.net.URLEncoder.encode(imgUrl, "UTF-8")}&ref=${java.net.URLEncoder.encode("https://beeg.com/", "UTF-8")}"
             }
         }
         return null
