@@ -2,6 +2,8 @@ package com.Shyfap
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import org.json.JSONObject
+import org.json.JSONArray
 import org.jsoup.nodes.Element
 
 class Shyfap : MainAPI() {
@@ -71,10 +73,47 @@ class Shyfap : MainAPI() {
         }
     }
 
+    private suspend fun resolveOkru(apiUrl: String, referer: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val response = app.get(apiUrl, headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Referer" to referer
+            )).text
+            val json = JSONObject(response)
+
+            val playerInfo = json.optJSONObject("playerInfo")
+            val videos: JSONArray? = playerInfo?.optJSONArray("videos") ?: json.optJSONArray("videos") ?: return
+
+            for (i in 0 until videos.length()) {
+                val video = videos.getJSONObject(i)
+                val url = video.optString("url", "")
+                if (url.isEmpty()) continue
+
+                val qualityStr = video.optString("name", video.optString("quality", ""))
+                val quality = when {
+                    qualityStr.contains("2160") || qualityStr.contains("4k") -> Qualities.P2160.value
+                    qualityStr.contains("1080") || qualityStr.contains("full") -> Qualities.P1080.value
+                    qualityStr.contains("720") -> Qualities.P720.value
+                    qualityStr.contains("480") -> Qualities.P480.value
+                    qualityStr.contains("360") -> Qualities.P360.value
+                    else -> Qualities.Unknown.value
+                }
+
+                callback.invoke(
+                    newExtractorLink(source = this.name, name = this.name, url = url, type = ExtractorLinkType.M3U8) {
+                        this.referer = referer
+                        this.quality = quality
+                    }
+                )
+            }
+        } catch (_: Exception) { }
+    }
+
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val document = app.get(data).document
         val docText = document.toString()
         val found = mutableListOf<Pair<String, Int>>()
+        val okruUrls = mutableListOf<String>()
         val previewRe = Regex("""_preview|_vthumb|_trailer|screenshots|\.jpg|preview\.mp4|/preview/|sexu-preview""")
 
         fun cleanUrl(url: String): String {
@@ -95,7 +134,11 @@ class Shyfap : MainAPI() {
                     "360" in url -> Qualities.P360.value
                     else -> Qualities.Unknown.value
                 }
-                found.add(Pair(cleanUrl(url), quality))
+                if (url.contains("api.ok.ru")) {
+                    okruUrls.add(url)
+                } else {
+                    found.add(Pair(cleanUrl(url), quality))
+                }
             }
         }
 
@@ -134,15 +177,19 @@ class Shyfap : MainAPI() {
             re.findAll(docText).forEach {
                 val url = it.value
                 if (isValid(url)) {
-                    val quality = when {
-                        "2160" in url || "4k" in url -> Qualities.P2160.value
-                        "1080" in url -> Qualities.P1080.value
-                        "720" in url -> Qualities.P720.value
-                        "480" in url -> Qualities.P480.value
-                        "360" in url -> Qualities.P360.value
-                        else -> Qualities.Unknown.value
+                    if (url.contains("api.ok.ru")) {
+                        okruUrls.add(url)
+                    } else {
+                        val quality = when {
+                            "2160" in url || "4k" in url -> Qualities.P2160.value
+                            "1080" in url -> Qualities.P1080.value
+                            "720" in url -> Qualities.P720.value
+                            "480" in url -> Qualities.P480.value
+                            "360" in url -> Qualities.P360.value
+                            else -> Qualities.Unknown.value
+                        }
+                        found.add(Pair(cleanUrl(url), quality))
                     }
-                    found.add(Pair(cleanUrl(url), quality))
                 }
             }
         }
@@ -159,6 +206,12 @@ class Shyfap : MainAPI() {
             )
             count++
         }
+
+        for (url in okruUrls.distinct()) {
+            resolveOkru(url, data, callback)
+            count++
+        }
+
         return count > 0
     }
 }
