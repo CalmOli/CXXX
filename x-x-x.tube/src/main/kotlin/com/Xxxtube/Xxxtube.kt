@@ -14,6 +14,8 @@ class Xxxtube : MainAPI() {
 
     override val mainPage = mainPageOf(
         "$mainUrl/api/mainpage?provider=$providerName" to "Latest Videos",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Top Rated",
+        "$mainUrl/api/mainpage?provider=$providerName" to "Most Viewed",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
