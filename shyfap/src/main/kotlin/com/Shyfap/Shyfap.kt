@@ -82,7 +82,7 @@ class Shyfap : MainAPI() {
             val json = JSONObject(response)
 
             val playerInfo = json.optJSONObject("playerInfo")
-            val videos: JSONArray? = playerInfo?.optJSONArray("videos") ?: json.optJSONArray("videos") ?: return
+            val videos = playerInfo?.optJSONArray("videos") ?: json.optJSONArray("videos") ?: return
 
             for (i in 0 until videos.length()) {
                 val video = videos.getJSONObject(i)
